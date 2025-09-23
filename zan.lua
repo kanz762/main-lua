@@ -10,7 +10,7 @@ getgenv().ESPObjects = getgenv().ESPObjects or {}
 local CONFIG = {
     PREMIUM_KEYS = {"UWG-P-2025-F1V8-H9C3", "PREM-X7K9-M3N5", "VIP-B8L2-Q6R4"},
     DISCORD_SERVER = "https://discord.gg/YOURSERVER",
-    SCRIPT_URL = "https://raw.githubusercontent.com/username/repo/main/ultimate-warp.lua" -- << Ganti dengan link raw script kamu
+    SCRIPT_URL = "https://raw.githubusercontent.com/kanz762/main-lua/refs/heads/main/zan.lua" -- << Ganti dengan link raw script kamu
 }
 
 local function ValidatePremiumKey(keyString)
