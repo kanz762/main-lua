@@ -8,7 +8,7 @@ getgenv().Connections = getgenv().Connections or {}
 getgenv().ESPObjects = getgenv().ESPObjects or {}
 
 local CONFIG = {
-    PREMIUM_KEYS = {"UWG-P-2025-F1V8-H9C3", "PREM-X7K9-M3N5", "VIP-B8L2-Q6R4"},
+    PREMIUM_KEYS = {"UWG-P-2025-F1V8-H9C3", "PREM-X7K9-M3N5", "ISAN"},
     DISCORD_SERVER = "https://discord.gg/YOURSERVER",
     SCRIPT_URL = "https://raw.githubusercontent.com/kanz762/main-lua/refs/heads/main/zan.lua" -- << Ganti dengan link raw script kamu
 }
@@ -85,54 +85,270 @@ TeleportTab:CreateSection("⚡ Quick Teleports")
 TeleportTab:CreateButton({Name = "🏠 Spawn", Callback = function() Character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0) end})
 TeleportTab:CreateButton({Name = "☁️ Sky", Callback = function() Character.HumanoidRootPart.CFrame = CFrame.new(0, 1000, 0) end})
 
-------------------------------------------------------
--- PLAYERS TAB (Premium)
-------------------------------------------------------
+-- ===== Players Tab (dengan Remote Finder, Tester, dan Bring All real attempt) =====
+
 local PlayerTab = Window:CreateTab("👥 Players", "users")
 
-if getgenv().UserTier < 2 then
-    PlayerTab:CreateParagraph({Title = "🔒 Premium Required", Content = "Unlock premium features:\n👥 Player teleportation\n🎯 Bring players\n📋 Player list management"})
-    PlayerTab:CreateButton({Name = "💎 Unlock Premium", Callback = function()
-        setclipboard(CONFIG.DISCORD_SERVER)
-        Rayfield:Notify({Title = "📋 Discord Copied", Content = "Join for premium keys!", Duration = 3})
-    end})
-else
-    local SelectedPlayer = nil
-    local function GetPlayerList()
-        local list = {}
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= Player then table.insert(list, player.Name) end
-        end
-        return #list > 0 and list or {"None"}
+-- helper: full path dari instance
+local function getInstancePath(inst)
+    if not inst then return "nil" end
+    local parts = {}
+    local cur = inst
+    while cur and cur.Parent do
+        table.insert(parts, 1, cur.Name)
+        cur = cur.Parent
+        if cur == game then break end
     end
+    return table.concat(parts, "/")
+end
 
-    local PlayerDropdown = PlayerTab:CreateDropdown({Name = "🎯 Select Player", Options = GetPlayerList(), CurrentOption = "None", Flag = "PlayerSelect", Callback = function(Option) SelectedPlayer = Players:FindFirstChild(Option) end})
-    PlayerTab:CreateButton({Name = "🔄 Refresh Players", Callback = function() PlayerDropdown:Refresh(GetPlayerList(), true) end})
-    PlayerTab:CreateSection("🎯 Player Actions")
-
-    PlayerTab:CreateButton({Name = "🚀 TP to Player", Callback = function()
-        if SelectedPlayer and SelectedPlayer.Character and SelectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            Character.HumanoidRootPart.CFrame = SelectedPlayer.Character.HumanoidRootPart.CFrame
-            Rayfield:Notify({Title = "🚀 Teleported", Content = "To " .. SelectedPlayer.Name, Duration = 2})
+-- scan remotes di seluruh game (RemoteEvent / RemoteFunction)
+local function FindRemotes()
+    local remotes = {}
+    for _, inst in ipairs(game:GetDescendants()) do
+        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") then
+            table.insert(remotes, inst)
         end
-    end})
+    end
+    table.sort(remotes, function(a,b) return getInstancePath(a) < getInstancePath(b) end)
+    return remotes
+end
 
-    PlayerTab:CreateButton({Name = "👆 Bring Player", Callback = function()
-        if SelectedPlayer and SelectedPlayer.Character and SelectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            SelectedPlayer.Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame
-            Rayfield:Notify({Title = "👆 Brought", Content = SelectedPlayer.Name, Duration = 2})
+-- convert remote instance -> label string
+local function RemoteToOption(r)
+    if not r then return "nil" end
+    return string.format("%s | %s", getInstancePath(r), r.ClassName)
+end
+
+-- cached remotes
+local cachedRemotes = FindRemotes()
+local RemoteDropdown = PlayerTab:CreateDropdown({
+    Name = "🔎 Remote Finder",
+    Options = (#cachedRemotes>0 and (function() local t={} for i,r in ipairs(cachedRemotes) do table.insert(t, RemoteToOption(r)) end return t end)() or {"No Remotes Found"}),
+    CurrentOption = (#cachedRemotes>0 and RemoteToOption(cachedRemotes[1]) or "No Remotes Found"),
+    Flag = "RemoteFinder"
+})
+
+-- rescan button
+PlayerTab:CreateButton({
+    Name = "🔄 Rescan Remotes",
+    Callback = function()
+        cachedRemotes = FindRemotes()
+        local opts = {}
+        for i, r in ipairs(cachedRemotes) do table.insert(opts, RemoteToOption(r)) end
+        if #opts == 0 then opts = {"No Remotes Found"} end
+        RemoteDropdown:Refresh(opts, true)
+        Rayfield:Notify({Title="🔎 Rescan Complete", Content=(#cachedRemotes>0 and tostring(#cachedRemotes).." remotes found" or "No remotes found"), Duration=3})
+    end
+})
+
+-- player selection dropdown
+local function GetPlayerList()
+    local list = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= Player then table.insert(list, p.Name) end
+    end
+    return #list>0 and list or {"None"}
+end
+
+local SelectedPlayer = nil
+local PlayerDropdown = PlayerTab:CreateDropdown({
+    Name = "🎯 Select Player (target for tests)",
+    Options = GetPlayerList(),
+    CurrentOption = (GetPlayerList()[1] or "None"),
+    Flag = "PlayerSelect",
+    Callback = function(Option) SelectedPlayer = Players:FindFirstChild(Option) end
+})
+PlayerTab:CreateButton({Name = "🔄 Refresh Players", Callback = function() PlayerDropdown:Refresh(GetPlayerList(), true) end})
+
+-- util: get selected remote instance
+local function GetSelectedRemote()
+    local opt = RemoteDropdown.CurrentOption
+    if not opt then return nil end
+    for _, r in ipairs(cachedRemotes) do
+        if RemoteToOption(r) == opt then return r end
+    end
+    return nil
+end
+
+-- build argument variants to try (safe/common)
+local function BuildArgVariants(targetPlayer)
+    local args = {}
+    if targetPlayer then
+        local hrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        table.insert(args, {targetPlayer})                 -- player
+        table.insert(args, {targetPlayer.Name})            -- player.Name
+        if hrp then
+            table.insert(args, {hrp.CFrame})               -- CFrame
+            table.insert(args, {targetPlayer, hrp.CFrame}) -- (player, CFrame)
+            table.insert(args, {hrp.Position})             -- Vector3
         end
-    end})
+    else
+        table.insert(args, {workspace.CurrentCamera.CFrame})
+        table.insert(args, {Vector3.new(0,0,0)})
+    end
+    return args
+end
 
-    PlayerTab:CreateButton({Name = "👥 Bring All Players", Callback = function()
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= Player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                player.Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame
+-- try call remote with args (FireServer or InvokeServer)
+local function TryCallRemote(remote, argTable)
+    if not remote then return false, "no remote" end
+    if remote:IsA("RemoteEvent") then
+        local ok, err = pcall(function() remote:FireServer(table.unpack(argTable)) end)
+        return ok, (ok and "fired" or tostring(err))
+    elseif remote:IsA("RemoteFunction") then
+        local ok, res = pcall(function() return remote:InvokeServer(table.unpack(argTable)) end)
+        return ok, (ok and ("invoked, result: "..tostring(res)) or tostring(res))
+    end
+    return false, "not a remote type"
+end
+
+-- helper: tostring of args for notification
+local function ArgsToString(argTable)
+    local out = {}
+    for i, v in ipairs(argTable) do
+        if typeof(v) == "Instance" then table.insert(out, v.ClassName..":"..tostring(v.Name))
+        else table.insert(out, tostring(v)) end
+    end
+    return table.concat(out, ", ")
+end
+
+-- store last working remote & arg pattern
+getgenv().LastWorkingRemote = getgenv().LastWorkingRemote or nil
+-- format: {remote = instance, path = path, class = "RemoteEvent/RemoteFunction", argTemplate = { "PLAYER", "CFRAME", ... }, rawArgs = {original args}, timestamp = os.time()}
+
+-- Try single target button
+PlayerTab:CreateButton({
+    Name = "▶ Try Selected Remote (single target)",
+    Callback = function()
+        local remote = GetSelectedRemote()
+        if not remote then Rayfield:Notify({Title="❌ No Remote Selected", Content="Pilih remote dulu.", Duration=3}); return end
+        if not SelectedPlayer then Rayfield:Notify({Title="❌ No Player Selected", Content="Pilih target player dulu.", Duration=3}); return end
+
+        Rayfield:Notify({Title="⚠️ Testing Remote", Content="Trying safe variants... (pcall used)", Duration=3})
+        local variants = BuildArgVariants(SelectedPlayer)
+        local anySuccess = false
+        for _, args in ipairs(variants) do
+            local ok, msg = TryCallRemote(remote, args)
+            if ok then
+                anySuccess = true
+                -- determine template: replace Instances/CFrame/Vector3 into tokens
+                local template = {}
+                for i, v in ipairs(args) do
+                    if typeof(v) == "Instance" and v:IsA("Player") then table.insert(template, "PLAYER")
+                    elseif typeof(v) == "CFrame" then table.insert(template, "CFRAME")
+                    elseif typeof(v) == "Vector3" then table.insert(template, "VECTOR3")
+                    else table.insert(template, "LITERAL:"..tostring(v)) end
+                end
+
+                getgenv().LastWorkingRemote = {
+                    remote = remote,
+                    path = getInstancePath(remote),
+                    class = remote.ClassName,
+                    argTemplate = template,
+                    rawArgs = args,
+                    timestamp = os.time()
+                }
+
+                Rayfield:Notify({Title="✅ Remote Responded", Content = "Args: "..ArgsToString(args).."\nResult: "..tostring(msg).."\nSaved as LastWorkingRemote.", Duration=5})
+                break
+            else
+                -- not successful; continue
+            end
+            wait(0.2)
+        end
+
+        if not anySuccess then
+            Rayfield:Notify({Title="❌ No Success", Content="Tidak ada varian argumen yang berhasil. Remote mungkin bukan teleport atau butuh argumen custom.", Duration=5})
+        else
+            Rayfield:Notify({Title="ℹ️ Single Test OK", Content="LastWorkingRemote disimpan. Gunakan 'Bring All' hanya jika yakin.", Duration=4})
+        end
+    end
+})
+
+-- helper: build args for given target based on template + rawArgs
+local function BuildArgsForTarget(template, rawArgs, originalTarget, newTarget)
+    local out = {}
+    for i, token in ipairs(template) do
+        if token == "PLAYER" then
+            table.insert(out, newTarget)
+        elseif token == "CFRAME" then
+            local hrp = newTarget.Character and newTarget.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then table.insert(out, hrp.CFrame) else table.insert(out, CFrame.new()) end
+        elseif token == "VECTOR3" then
+            local hrp = newTarget.Character and newTarget.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then table.insert(out, hrp.Position) else table.insert(out, Vector3.new()) end
+        else
+            -- LITERAL:... or fallback to raw arg if exists
+            if type(rawArgs[i]) ~= "nil" then table.insert(out, rawArgs[i]) else
+                -- fallback
+                local s = token:match("^LITERAL:(.+)$")
+                if s then
+                    table.insert(out, s)
+                else
+                    table.insert(out, rawArgs[i])
+                end
             end
         end
-        Rayfield:Notify({Title = "👥 All Brought", Content = "All players teleported", Duration = 2})
-    end})
+    end
+    return out
 end
+
+-- Bring All using LastWorkingRemote (safe mode: per-player pcall, delay, counts)
+PlayerTab:CreateButton({
+    Name = "▶ Bring All (use LastWorkingRemote) - CAUTIOUS",
+    Callback = function()
+        local info = getgenv().LastWorkingRemote
+        if not info or not info.remote then Rayfield:Notify({Title="❌ No Saved Remote", Content="Jalankan 'Try Selected Remote (single target)' yang sukses dulu.", Duration=4}); return end
+        -- warn
+        Rayfield:Notify({Title="⚠️ Mass Bring Starting", Content="This will attempt server calls for each player. Use cautiously.", Duration=4})
+
+        local remote = info.remote
+        local template = info.argTemplate
+        local rawArgs = info.rawArgs
+        local successes = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= Player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local args = BuildArgsForTarget(template, rawArgs, SelectedPlayer or rawArgs[1], p)
+                local ok, msg = TryCallRemote(remote, args)
+                if ok then successes = successes + 1 end
+                wait(0.12) -- small delay to reduce burst
+            end
+        end
+
+        Rayfield:Notify({Title="✅ Mass Try Finished", Content = "Attempts finished. Successes: "..tostring(successes), Duration=5})
+    end
+})
+
+-- Optional: direct Bring All Visual-only (client-side) for compatibility
+PlayerTab:CreateButton({
+    Name = "👥 Bring All Players (Client-Only Visual)",
+    Callback = function()
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= Player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                p.Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame
+            end
+        end
+        Rayfield:Notify({Title="👥 Done (Client Only)", Content="Perubahan hanya terlihat di perangkatmu.", Duration=3})
+    end
+})
+
+-- Info button to show last saved remote
+PlayerTab:CreateButton({
+    Name = "ℹ️ Show Last Working Remote",
+    Callback = function()
+        local info = getgenv().LastWorkingRemote
+        if not info then Rayfield:Notify({Title="ℹ️ No Last Remote", Content="Belum ada remote yang tersimpan.", Duration=3}); return end
+        local s = ("Path: %s\nClass: %s\nTemplate: %s\nSaved at: %s"):format(
+            tostring(info.path),
+            tostring(info.class),
+            table.concat(info.argTemplate or {}, ", "),
+            os.date("%Y-%m-%d %H:%M:%S", info.timestamp or os.time())
+        )
+        Rayfield:Notify({Title="🔎 LastWorkingRemote", Content=s, Duration=6})
+    end
+})
+
 
 ------------------------------------------------------
 -- COMBAT TAB (Premium)
