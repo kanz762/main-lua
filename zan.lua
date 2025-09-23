@@ -85,217 +85,120 @@ TeleportTab:CreateSection("⚡ Quick Teleports")
 TeleportTab:CreateButton({Name = "🏠 Spawn", Callback = function() Character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0) end})
 TeleportTab:CreateButton({Name = "☁️ Sky", Callback = function() Character.HumanoidRootPart.CFrame = CFrame.new(0, 1000, 0) end})
 
--- ===============[ PLAYER TAB FINAL ]================
-local PlayerTab = Window:CreateTab("👤 Player", 4483362458)
+-- =========================
+-- 🔧 Remote Finder System
+-- =========================
+local PlayerTab = Window:CreateTab("👥 Players", "users")
 
--- Player dropdown
-local selectedPlayer = nil
-local function RefreshPlayers()
-    local names = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= Player then table.insert(names, plr.Name) end
-    end
-    if #names == 0 then names = {"No Players"} end
-    if PlayerDropdown then
-        PlayerDropdown:Refresh(names, true)
-    else
-        PlayerDropdown = PlayerTab:CreateDropdown({
-            Name = "🎯 Select Player",
-            Options = names,
-            CurrentOption = names[1],
-            Callback = function(opt) selectedPlayer = opt end
-        })
-    end
-    selectedPlayer = names[1]
-end
-RefreshPlayers()
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
 
-PlayerTab:CreateButton({
-    Name = "🔄 Refresh Player List",
-    Callback = RefreshPlayers
-})
+local foundRemotes = {}
+local currentRemoteIndex = 0
 
--- Remote finder + dropdown
-local cachedRemotes = {}
-local RemoteDropdown = nil
-local remoteSelectedOption = nil
-
-local function RemoteToOption(remote)
-    return remote:GetFullName() .. " | " .. remote.ClassName
-end
-
-local function FindRemotes()
-    local remotes = {}
+-- 🔍 Cari semua remote di game
+local function RescanRemotes()
+    foundRemotes = {}
     for _, obj in ipairs(game:GetDescendants()) do
         if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-            table.insert(remotes, obj)
+            table.insert(foundRemotes, obj)
         end
     end
-    return remotes
+    currentRemoteIndex = 0
+    Rayfield:Notify({Title="🔍 Scan Selesai", Content="Ditemukan "..#foundRemotes.." remote!", Duration=4})
 end
 
-local function BuildRemoteDropdown(initialRemotes)
-    local opts = {}
-    for _, r in ipairs(initialRemotes) do table.insert(opts, RemoteToOption(r)) end
-    if #opts == 0 then opts = {"No Remotes Found"} end
-
-    if RemoteDropdown and typeof(RemoteDropdown.Refresh) == "function" then
-        RemoteDropdown:Refresh(opts, true)
-    else
-        RemoteDropdown = PlayerTab:CreateDropdown({
-            Name = "🔎 Remote Finder",
-            Options = opts,
-            CurrentOption = opts[1],
-            Flag = "RemoteFinder",
-            Callback = function(Option)
-                remoteSelectedOption = Option
-                Rayfield:Notify({
-                    Title = "🔎 Remote Selected",
-                    Content = tostring(Option),
-                    Duration = 2
-                })
-            end
-        })
-    end
-    remoteSelectedOption = opts[1]
+-- 🎯 Ambil remote yang sedang dipilih
+local function GetCurrentRemote()
+    if #foundRemotes == 0 then return nil end
+    return foundRemotes[currentRemoteIndex]
 end
 
-local function RefreshRemotes()
-    cachedRemotes = FindRemotes()
-    local opts = {}
-    for _, r in ipairs(cachedRemotes) do table.insert(opts, RemoteToOption(r)) end
-    if #opts == 0 then opts = {"No Remotes Found"} end
-
-    if not RemoteDropdown then
-        BuildRemoteDropdown(cachedRemotes)
-    else
-        RemoteDropdown:Refresh(opts, true)
-        remoteSelectedOption = opts[1]
-    end
-
-    Rayfield:Notify({
-        Title = "🔎 Rescan Complete",
-        Content = (#cachedRemotes>0 and tostring(#cachedRemotes).." remotes found" or "No remotes found"),
-        Duration = 3
-    })
-end
-
-cachedRemotes = FindRemotes()
-BuildRemoteDropdown(cachedRemotes)
-
+-- =========================
+-- 🎮 Tombol GUI
+-- =========================
 PlayerTab:CreateButton({
     Name = "🔄 Rescan Remotes",
-    Callback = RefreshRemotes
+    Callback = function()
+        RescanRemotes()
+    end
 })
 
-local function GetSelectedRemote()
-    if not remoteSelectedOption then return nil end
-    for _, r in ipairs(cachedRemotes) do
-        if RemoteToOption(r) == remoteSelectedOption then
-            return r
-        end
-    end
-    return nil
-end
-
--- Test single target
 PlayerTab:CreateButton({
-    Name = "⚡ Try Selected Remote (single target)",
+    Name = "➡️ Next Remote",
     Callback = function()
-        local remote = GetSelectedRemote()
-        if not remote then
-            Rayfield:Notify({
-                Title = "❌ No Remote",
-                Content = "Select a remote first!",
-                Duration = 3
-            })
+        if #foundRemotes == 0 then
+            Rayfield:Notify({Title="❌", Content="Belum ada remote, scan dulu!", Duration=3})
             return
         end
-        if not selectedPlayer or selectedPlayer == "No Players" then
-            Rayfield:Notify({
-                Title = "❌ No Player",
-                Content = "Select a player first!",
-                Duration = 3
-            })
-            return
-        end
-        local targetPlr = Players:FindFirstChild(selectedPlayer)
-        if not targetPlr or not targetPlr.Character or not targetPlr.Character:FindFirstChild("HumanoidRootPart") then
-            Rayfield:Notify({
-                Title = "❌ Target Missing",
-                Content = "Player "..selectedPlayer.." not valid",
-                Duration = 3
-            })
-            return
-        end
-        local hrp = targetPlr.Character.HumanoidRootPart
-        local myPos = Character and Character:FindFirstChild("HumanoidRootPart") and Character.HumanoidRootPart.CFrame or CFrame.new(0,10,0)
+        currentRemoteIndex = currentRemoteIndex + 1
+        if currentRemoteIndex > #foundRemotes then currentRemoteIndex = 1 end
+        Rayfield:Notify({Title="📡 Remote Dipilih", Content="["..currentRemoteIndex.."/"..#foundRemotes.."] "..foundRemotes[currentRemoteIndex].Name, Duration=3})
+    end
+})
 
-        local ok, err = pcall(function()
+PlayerTab:CreateButton({
+    Name = "⚡ Test Remote (Single)",
+    Callback = function()
+        local remote = GetCurrentRemote()
+        if not remote then
+            Rayfield:Notify({Title="❌", Content="Remote belum dipilih!", Duration=3})
+            return
+        end
+
+        local target = nil
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Player then target = plr break end
+        end
+
+        if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+            Rayfield:Notify({Title="❌", Content="Tidak ada player lain!", Duration=3})
+            return
+        end
+
+        local myPos = Character:FindFirstChild("HumanoidRootPart") and Character.HumanoidRootPart.CFrame or CFrame.new(0,10,0)
+
+        pcall(function()
             if remote:IsA("RemoteEvent") then
-                remote:FireServer(targetPlr, myPos)
+                remote:FireServer(target, myPos)
             elseif remote:IsA("RemoteFunction") then
-                remote:InvokeServer(targetPlr, myPos)
+                remote:InvokeServer(target, myPos)
             end
         end)
-        if ok then
-            Rayfield:Notify({
-                Title = "⚡ Fired Remote",
-                Content = "Sent bring request to "..selectedPlayer,
-                Duration = 3
-            })
-        else
-            Rayfield:Notify({
-                Title = "❌ Remote Error",
-                Content = tostring(err),
-                Duration = 5
-            })
-        end
+
+        Rayfield:Notify({Title="⚡ Dicoba", Content="Test remote: "..remote.Name, Duration=3})
     end
 })
 
--- Bring all players
 PlayerTab:CreateButton({
-    Name = "👥 Bring All Players (via remote)",
+    Name = "👥 Bring All Players",
     Callback = function()
-        local remote = GetSelectedRemote()
+        local remote = GetCurrentRemote()
         if not remote then
-            Rayfield:Notify({
-                Title = "❌ No Remote",
-                Content = "Select a remote first!",
-                Duration = 3
-            })
+            Rayfield:Notify({Title="❌", Content="Remote belum dipilih!", Duration=3})
             return
         end
-        local myPos = Character and Character:FindFirstChild("HumanoidRootPart") and Character.HumanoidRootPart.CFrame or CFrame.new(0,10,0)
+
+        local myPos = Character:FindFirstChild("HumanoidRootPart") and Character.HumanoidRootPart.CFrame or CFrame.new(0,10,0)
 
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= Player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                local ok, err = pcall(function()
+                pcall(function()
                     if remote:IsA("RemoteEvent") then
                         remote:FireServer(plr, myPos)
                     elseif remote:IsA("RemoteFunction") then
                         remote:InvokeServer(plr, myPos)
                     end
                 end)
-                if not ok then
-                    Rayfield:Notify({
-                        Title = "❌ Remote Error",
-                        Content = "Failed for "..plr.Name..": "..tostring(err),
-                        Duration = 4
-                    })
-                end
             end
         end
 
-        Rayfield:Notify({
-            Title = "👥 Bring All Fired",
-            Content = "Attempted bring for all players.",
-            Duration = 3
-        })
+        Rayfield:Notify({Title="✅ Dicoba", Content="Bring all via "..remote.Name, Duration=3})
     end
 })
--- ===================================================
+
+ 
 
 
     
