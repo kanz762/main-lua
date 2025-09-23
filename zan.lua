@@ -497,6 +497,289 @@ end
 -- AUTO TAB (Premium)
 ------------------------------------------------------
 local AutoTab = Window:CreateTab("🤖 Auto", "bot")
+-- ===== Enhanced Radius Fling (paste ke dalam AutoTab) =====
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local LocalPlayer = Players.LocalPlayer
+    local Mouse = LocalPlayer:GetMouse()
+
+    -- state
+    local flingRunning = false
+    local flingConn = nil
+    local createdForces = {} -- track forces we created to cleanup
+    local autoUnanchor = false
+
+    -- defaults (user-changeable)
+    local radius = 30           -- studs
+    local power = 200000        -- general magnitude (bigger = stronger)
+    local repeatMode = true     -- continuous applying vs one-shot
+    local affectPlayersParts = true -- whether to also affect players' character parts within radius
+
+    -- UI
+    AutoTab:CreateSection("🌀 Radius Fling (Enhanced)")
+
+    AutoTab:CreateInput({
+        Name = "📏 Radius (studs)",
+        PlaceholderText = "e.g. 30 or 99999 for unlimited",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local n = tonumber(text)
+            if n and n > 0 then radius = n else
+                Rayfield:Notify({Title="❗ Invalid", Content="Masukkan angka positif untuk radius.", Duration=3})
+            end
+        end
+    })
+
+    AutoTab:CreateInput({
+        Name = "💥 Power (force magnitude)",
+        PlaceholderText = "e.g. 200000 (bigger = stronger)",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local n = tonumber(text)
+            if n and n >= 0 then power = n else
+                Rayfield:Notify({Title="❗ Invalid", Content="Masukkan angka numeric untuk power.", Duration=3})
+            end
+        end
+    })
+
+    AutoTab:CreateToggle({
+        Name = "🔁 Continuous (repeat) mode",
+        CurrentValue = repeatMode,
+        Callback = function(v) repeatMode = v end
+    })
+
+    AutoTab:CreateToggle({
+        Name = "👥 Include players' character parts",
+        CurrentValue = affectPlayersParts,
+        Callback = function(v) affectPlayersParts = v end
+    })
+
+    AutoTab:CreateToggle({
+        Name = "⚠️ Auto-unanchor parts if anchored (risky)",
+        CurrentValue = autoUnanchor,
+        Callback = function(v) autoUnanchor = v end
+    })
+
+    AutoTab:CreateSlider({
+        Name = "⏱️ Loop interval (ms)",
+        Range = {50, 2000},
+        Increment = 10,
+        CurrentValue = 200,
+        Flag = "FlingInterval",
+        Callback = function(v) 
+            -- stored in seconds internally
+            _G.FlingInterval = math.max(0.05, v / 1000)
+        end
+    })
+    _G.FlingInterval = 0.2
+
+    -- helper: collect parts within radius around a position
+    local function GetPartsInRadius(centerPos, r)
+        local parts = {}
+        for _, part in ipairs(workspace:GetDescendants()) do
+            if part:IsA("BasePart") and part:IsDescendantOf(workspace) then
+                local ok, pos = pcall(function() return part.Position end)
+                if ok and pos then
+                    if (pos - centerPos).Magnitude <= r then
+                        table.insert(parts, part)
+                    end
+                end
+            end
+        end
+        return parts
+    end
+
+    -- helper: safe create vector force (VectorForce preferred) or BodyVelocity fallback
+    local function ApplyForceToPart(part, magnitude, dir)
+        if not part or not part.Parent then return nil end
+        local created = {}
+        -- try VectorForce (constraint-based) first if available & attachment allowed
+        local ok, _ = pcall(function()
+            -- create Attachment if none
+            local att = Instance.new("Attachment")
+            att.Name = "Fling_Attachment_Temp"
+            att.Parent = part
+            local vf = Instance.new("VectorForce")
+            vf.Attachment0 = att
+            vf.Force = dir * magnitude
+            vf.RelativeTo = Enum.ActuatorRelativeTo.World
+            vf.Parent = part
+            table.insert(created, att)
+            table.insert(created, vf)
+        end)
+        if not ok or #created == 0 then
+            -- fallback to BodyVelocity for translational push
+            local bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(magnitude, magnitude, magnitude)
+            bv.P = 10000
+            bv.Velocity = dir * (math.max(1, magnitude) / 5000)
+            bv.Parent = part
+            table.insert(created, bv)
+        end
+        -- try BodyAngularVelocity to spin
+        local bav = Instance.new("BodyAngularVelocity")
+        bav.MaxTorque = Vector3.new(magnitude, magnitude, magnitude)
+        bav.P = 10000
+        bav.AngularVelocity = Vector3.new(math.random(-20,20), math.random(-20,20), math.random(-20,20))
+        bav.Parent = part
+        table.insert(created, bav)
+
+        -- record created items for cleanup
+        for _, c in ipairs(created) do table.insert(createdForces, c) end
+        return created
+    end
+
+    local function CleanupForces()
+        for _, obj in ipairs(createdForces) do
+            pcall(function() if obj and obj.Parent then obj:Destroy() end end)
+        end
+        createdForces = {}
+    end
+
+    -- core routine: apply forces to parts within radius of local player's HRP
+    local function StartRadiusFling()
+        if flingRunning then
+            Rayfield:Notify({Title="ℹ️ Already running", Content="Stop first before starting again.", Duration=2})
+            return
+        end
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Rayfield:Notify({Title="❌ No HRP", Content="Character HumanoidRootPart tidak ditemukan.", Duration=3})
+            return
+        end
+
+        flingRunning = true
+        Rayfield:Notify({Title="🌀 Radius fling started", Content=("Radius: %d studs, Power: %d"):format(radius, power), Duration=3})
+
+        flingConn = RunService.Heartbeat:Connect(function(dt)
+            if not flingRunning then return end
+            local center = hrp.Position
+            -- collect parts in radius
+            local parts = GetPartsInRadius(center, radius)
+            for _, part in ipairs(parts) do
+                if not part:IsDescendantOf(LocalPlayer.Character) then
+                    -- optionally unanchor (risky)
+                    if part.Anchored and autoUnanchor then
+                        pcall(function() part.Anchored = false end)
+                    end
+                    -- optionally skip Massless/Constraints etc? we attempt anyway
+                    -- compute direction away from center + random jitter
+                    local dir = (part.Position - center).Unit
+                    if dir ~= dir then dir = Vector3.new(math.random(),1,math.random()).Unit end
+                    local jitter = Vector3.new((math.random()-0.5)*0.3, math.random()*0.8, (math.random()-0.5)*0.3)
+                    local finalDir = (dir + jitter).Unit
+                    -- apply force; magnitude = power (user-defined)
+                    pcall(function() ApplyForceToPart(part, power, finalDir) end)
+                end
+            end
+
+            -- also apply to players' character parts if enabled
+            if affectPlayersParts then
+                for _, pl in ipairs(Players:GetPlayers()) do
+                    if pl ~= LocalPlayer and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then
+                        for _, cpart in ipairs(pl.Character:GetDescendants()) do
+                            if cpart:IsA("BasePart") then
+                                if (cpart.Position - center).Magnitude <= radius then
+                                    if cpart.Anchored and autoUnanchor then
+                                        pcall(function() cpart.Anchored = false end)
+                                    end
+                                    local dir2 = (cpart.Position - center).Unit
+                                    local jitter2 = Vector3.new((math.random()-0.5)*0.3, math.random()*0.8, (math.random()-0.5)*0.3)
+                                    local finalDir2 = (dir2 + jitter2).Unit
+                                    pcall(function() ApplyForceToPart(cpart, power, finalDir2) end)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if not repeatMode then
+                -- one-shot: stop after one iteration
+                flingRunning = false
+                CleanupForces()
+                if flingConn then flingConn:Disconnect() flingConn = nil end
+            end
+
+            wait(_G.FlingInterval or 0.2)
+        end)
+    end
+
+    -- one-shot impulse on all parts in radius
+    local function OneShotRadiusImpulse()
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Rayfield:Notify({Title="❌ No HRP", Content="Character HumanoidRootPart tidak ditemukan.", Duration=3})
+            return
+        end
+        local center = hrp.Position
+        local parts = GetPartsInRadius(center, radius)
+        for _, part in ipairs(parts) do
+            if not part:IsDescendantOf(LocalPlayer.Character) then
+                if part.Anchored and autoUnanchor then
+                    pcall(function() part.Anchored = false end)
+                end
+                local dir = (part.Position - center).Unit
+                if dir ~= dir then dir = Vector3.new(1,0,0) end
+                pcall(function()
+                    local bv = Instance.new("BodyVelocity")
+                    bv.MaxForce = Vector3.new(power, power, power)
+                    bv.Velocity = dir * math.max(1, power/5000)
+                    bv.P = 10000
+                    bv.Parent = part
+                    table.insert(createdForces, bv)
+                    delay(0.35, function() pcall(function() if bv and bv.Parent then bv:Destroy() end end) end)
+                end)
+            end
+        end
+        -- player parts if selected
+        if affectPlayersParts then
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl ~= LocalPlayer and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then
+                    for _, cpart in ipairs(pl.Character:GetDescendants()) do
+                        if cpart:IsA("BasePart") and (cpart.Position - center).Magnitude <= radius then
+                            if cpart.Anchored and autoUnanchor then
+                                pcall(function() cpart.Anchored = false end)
+                            end
+                            local dir = (cpart.Position - center).Unit
+                            pcall(function()
+                                local bv = Instance.new("BodyVelocity")
+                                bv.MaxForce = Vector3.new(power, power, power)
+                                bv.Velocity = dir * math.max(1, power/5000)
+                                bv.P = 10000
+                                bv.Parent = cpart
+                                table.insert(createdForces, bv)
+                                delay(0.35, function() pcall(function() if bv and bv.Parent then bv:Destroy() end end) end)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+
+        Rayfield:Notify({Title="⚡ One-shot applied", Content=("Parts affected: %d"):format(#parts), Duration=3})
+    end
+
+    -- UI Buttons
+    AutoTab:CreateButton({Name = "▶️ Start Radius Fling", Callback = function() StartRadiusFling() end})
+    AutoTab:CreateButton({Name = "⚡ One-shot Radius Impulse", Callback = function() OneShotRadiusImpulse() end})
+    AutoTab:CreateButton({Name = "⏹️ Stop & Cleanup", Callback = function()
+        flingRunning = false
+        if flingConn then flingConn:Disconnect() flingConn = nil end
+        CleanupForces()
+        Rayfield:Notify({Title="⏹️ Stopped", Content="Cleanup done.", Duration=2})
+    end})
+
+    -- cleanup on respawn
+    LocalPlayer.CharacterAdded:Connect(function()
+        flingRunning = false
+        if flingConn then flingConn:Disconnect() flingConn = nil end
+        CleanupForces()
+    end)
+end
+-- ===== end enhanced radius fling =====
+
 
 if getgenv().UserTier < 2 then
     AutoTab:CreateParagraph({Title = "🔒 Premium Required", Content = "Unlock premium features:\n🚀 Fly mode\n👻 Noclip\n🚜 Auto farm\n♾️ Infinite jump"})
