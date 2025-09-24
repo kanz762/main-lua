@@ -460,77 +460,121 @@ else
 end
 
 ------------------------------------------------------
--- FLING TAB
+-- FLING TAB (Players + Parts + Chaos Mode)
 ------------------------------------------------------
-local FlingTab = Window:CreateTab("💥 Fling", "zap")
+local FlingTab = Window:CreateTab("💥 Fling", "bomb")
 
-local flingActive = false
-local flingConnection = nil
-local targetRadius = 20
-local flingPower = 5000
+local flingPower = 1000000 -- default power
+local flingRadius = 50
+local flingEnabled = false
+local chaosMode = false
+local flingConn
 
--- input power
+-- Input Power
 FlingTab:CreateInput({
-    Name = "⚡ Fling Power",
-    PlaceholderText = "Default 5000",
+    Name = "Fling Power",
+    PlaceholderText = "Default: 1000000",
     RemoveTextAfterFocusLost = false,
-    Callback = function(txt)
-        local num = tonumber(txt)
-        if num and num > 0 then
-            flingPower = num
-            Rayfield:Notify({Title="✅ Updated", Content="Power set to "..num, Duration=2})
-        end
+    Callback = function(Text)
+        local num = tonumber(Text)
+        if num then flingPower = num end
     end
 })
 
--- input radius
+-- Input Radius
 FlingTab:CreateInput({
-    Name = "📏 Fling Radius",
-    PlaceholderText = "Default 20",
+    Name = "Fling Radius",
+    PlaceholderText = "Default: 50",
     RemoveTextAfterFocusLost = false,
-    Callback = function(txt)
-        local num = tonumber(txt)
-        if num and num > 0 then
-            targetRadius = num
-            Rayfield:Notify({Title="✅ Updated", Content="Radius set to "..num, Duration=2})
-        end
+    Callback = function(Text)
+        local num = tonumber(Text)
+        if num then flingRadius = num end
     end
 })
 
--- toggle fling
+-- Toggle Chaos Mode
 FlingTab:CreateToggle({
-    Name = "💥 Enable Fling",
+    Name = "Chaos Mode 🌪️ (Players)",
     CurrentValue = false,
-    Flag = "FlingToggle",
     Callback = function(state)
-        flingActive = state
-        if state then
-            local player = game.Players.LocalPlayer
-            flingConnection = game:GetService("RunService").Heartbeat:Connect(function()
-                local char = player.Character
-                if not char then return end
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if not hrp then return end
+        chaosMode = state
+        Rayfield:Notify({
+            Title = "Chaos Mode",
+            Content = chaosMode and "ON - Player muter nggak terkendali" or "OFF - Normal fling",
+            Duration = 3
+        })
+    end
+})
 
-                for _, plr in ipairs(game.Players:GetPlayers()) do
-                    if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                        local targetHRP = plr.Character.HumanoidRootPart
-                        local dist = (hrp.Position - targetHRP.Position).Magnitude
-                        if dist <= targetRadius then
-                            -- apply fling force
-                            targetHRP.Velocity = (targetHRP.Position - hrp.Position).Unit * flingPower
+-- Toggle Fling (Player + Part)
+FlingTab:CreateToggle({
+    Name = "Enable Fling (Players + Parts)",
+    CurrentValue = false,
+    Callback = function(state)
+        flingEnabled = state
+        if flingConn then flingConn:Disconnect() end
+
+        if flingEnabled then
+            flingConn = RunService.Heartbeat:Connect(function()
+                if not Character or not Character:FindFirstChild("HumanoidRootPart") then return end
+                local origin = Character.HumanoidRootPart.Position
+
+                -----------------
+                -- FLING PLAYERS
+                -----------------
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= Player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        local hrp = p.Character.HumanoidRootPart
+                        local dist = (hrp.Position - origin).Magnitude
+                        if dist <= flingRadius then
+                            local randomVec
+                            if chaosMode then
+                                -- arah baru tiap heartbeat → kacau total
+                                randomVec = Vector3.new(
+                                    (math.random() - 0.5) * 2,
+                                    (math.random() - 0.2) * 4,
+                                    (math.random() - 0.5) * 2
+                                ).Unit * flingPower
+                            else
+                                -- arah random konstan
+                                if not hrp:FindFirstChild("FlingDirection") then
+                                    local marker = Instance.new("Vector3Value")
+                                    marker.Name = "FlingDirection"
+                                    marker.Value = Vector3.new(
+                                        (math.random() - 0.5) * 2,
+                                        1,
+                                        (math.random() - 0.5) * 2
+                                    ).Unit * flingPower
+                                    marker.Parent = hrp
+                                end
+                                randomVec = hrp.FlingDirection.Value
+                            end
+                            hrp.AssemblyLinearVelocity = randomVec
                         end
                     end
                 end
+
+                -----------------
+                -- FLING PARTS
+                -----------------
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and obj.Anchored == false then
+                        local dist = (obj.Position - origin).Magnitude
+                        if dist <= flingRadius then
+                            obj.AssemblyLinearVelocity = Vector3.new(
+                                (math.random() - 0.5) * 2,
+                                (math.random() - 0.2) * 4,
+                                (math.random() - 0.5) * 2
+                            ).Unit * flingPower
+                        end
+                    end
+                end
+
             end)
-            Rayfield:Notify({Title="💥 Fling", Content="Fling Activated", Duration=2})
-        else
-            if flingConnection then flingConnection:Disconnect() end
-            flingConnection = nil
-            Rayfield:Notify({Title="🛑 Fling", Content="Fling Deactivated", Duration=2})
         end
     end
 })
+
 
 ------------------------------------------------------
 -- VISUAL TAB (Premium)
