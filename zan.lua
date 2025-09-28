@@ -57,33 +57,273 @@ spawn(function()
     end
 end)
 
-local LocationName = ""
-TeleportTab:CreateInput({Name = "💾 Location Name", PlaceholderText = "Enter name...", RemoveTextAfterFocusLost = false, Callback = function(Text) LocationName = Text end})
-
-TeleportTab:CreateButton({Name = "💾 Save Location", Callback = function()
-    if LocationName ~= "" and Character and Character:FindFirstChild("HumanoidRootPart") then
-        getgenv().SavedLocations[LocationName] = Character.HumanoidRootPart.Position
-        Rayfield:Notify({Title = "✅ Saved", Content = LocationName .. " saved!", Duration = 2})
+-- Warp: call the CreateWarpGUI function (defined later)
+MainTab:CreateButton({
+    Name = "Warp",
+    Callback = function()
+        -- CreateWarpGUI() will ensure single instance
+        if type(CreateWarpGUI) == "function" then
+            pcall(CreateWarpGUI)
+        else
+            Rayfield:Notify({Title="⚠️ Warp Missing", Content="Warp module not found. Paste Warp code section into script.", Duration=4})
+        end
     end
-end})
+})
+-- === WARP GUI MODULE ===
+-- Paste this block once in your zan.lua (utilities area). It defines CreateWarpGUI()
+do
+    -- persistent storage
+    getgenv().WarpLocations = getgenv().WarpLocations or {}
+    getgenv()._NextAutoNameIdx = getgenv()._NextAutoNameIdx or 1
+    getgenv()._AutoWarp = getgenv()._AutoWarp or {running=false, delay=2}
 
-local function GetLocationOptions()
-    local options = {}
-    for name, _ in pairs(getgenv().SavedLocations) do table.insert(options, name) end
-    return #options > 0 and options or {"None"}
-end
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local LocationDropdown = TeleportTab:CreateDropdown({Name = "📋 Saved Locations", Options = GetLocationOptions(), CurrentOption = "None", Flag = "Locations", Callback = function(Option)
-    if getgenv().SavedLocations[Option] and Character and Character:FindFirstChild("HumanoidRootPart") then
-        Character.HumanoidRootPart.CFrame = CFrame.new(getgenv().SavedLocations[Option])
-        Rayfield:Notify({Title = "🚀 Teleported", Content = "To " .. Option, Duration = 2})
+    -- avoid duplicates
+    if PlayerGui:FindFirstChild("UltimateWarp_WarpGui") then
+        -- already exists, focus/bring to front
+        PlayerGui.UltimateWarp_WarpGui.Enabled = true
+        return
     end
-end})
 
-TeleportTab:CreateButton({Name = "🔄 Refresh List", Callback = function() LocationDropdown:Refresh(GetLocationOptions(), true) end})
-TeleportTab:CreateSection("⚡ Quick Teleports")
-TeleportTab:CreateButton({Name = "🏠 Spawn", Callback = function() Character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0) end})
-TeleportTab:CreateButton({Name = "☁️ Sky", Callback = function() Character.HumanoidRootPart.CFrame = CFrame.new(0, 1000, 0) end})
+    function CreateWarpGUI()
+        -- ensure single instance
+        if PlayerGui:FindFirstChild("UltimateWarp_WarpGui") then return end
+
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "UltimateWarp_WarpGui"
+        ScreenGui.ResetOnSpawn = false
+        ScreenGui.Parent = PlayerGui
+
+        local Frame = Instance.new("Frame", ScreenGui)
+        Frame.Name = "Main"
+        Frame.Size = UDim2.fromOffset(440, 380)
+        Frame.Position = UDim2.fromScale(0.5, 0.5)
+        Frame.AnchorPoint = Vector2.new(0.5,0.5)
+        Frame.BackgroundColor3 = Color3.fromRGB(28,28,28)
+        Frame.BorderSizePixel = 0
+        Instance.new("UICorner", Frame).CornerRadius = UDim.new(0,12)
+
+        local Title = Instance.new("TextLabel", Frame)
+        Title.Size = UDim2.new(1, -100, 0, 30)
+        Title.Position = UDim2.new(0, 12, 0, 6)
+        Title.BackgroundTransparency = 1
+        Title.Font = Enum.Font.GothamBold
+        Title.TextSize = 15
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.TextColor3 = Color3.fromRGB(245,245,245)
+        Title.Text = "Warp Controls"
+
+        local btnMin = Instance.new("TextButton", Frame)
+        btnMin.Name = "Minimize"
+        btnMin.Size = UDim2.fromOffset(32,24)
+        btnMin.Position = UDim2.new(1, -72, 0, 6)
+        btnMin.Text = "—"
+        Instance.new("UICorner", btnMin).CornerRadius = UDim.new(0,6)
+
+        local btnClose = Instance.new("TextButton", Frame)
+        btnClose.Name = "Close"
+        btnClose.Size = UDim2.fromOffset(32,24)
+        btnClose.Position = UDim2.new(1, -36, 0, 6)
+        btnClose.Text = "X"
+        Instance.new("UICorner", btnClose).CornerRadius = UDim.new(0,6)
+
+        -- Top: Save button (auto name), placed at top per your request
+        local saveBox = Instance.new("Frame", Frame")
+        -- NOTE: Use minimal components to avoid complex layout libs
+        -- We'll create TextBox for optional name but default auto name will be applied if empty
+
+        local nameBox = Instance.new("TextBox", Frame)
+        nameBox.Size = UDim2.fromOffset(260, 34)
+        nameBox.Position = UDim2.fromOffset(12, 40)
+        nameBox.PlaceholderText = "Nama lokasi (opsional)"
+        nameBox.ClearTextOnFocus = false
+        nameBox.Font = Enum.Font.Gotham
+        nameBox.BackgroundColor3 = Color3.fromRGB(36,36,36)
+        Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0,8)
+
+        local btnSave = Instance.new("TextButton", Frame)
+        btnSave.Size = UDim2.fromOffset(80,34)
+        btnSave.Position = UDim2.fromOffset(282, 40)
+        btnSave.Text = "Save"
+        btnSave.Font = Enum.Font.GothamBold
+        btnSave.BackgroundColor3 = Color3.fromRGB(58,58,120)
+        Instance.new("UICorner", btnSave).CornerRadius = UDim.new(0,8)
+
+        -- Scroll list area
+        local listFrame = Instance.new("Frame", Frame)
+        listFrame.Size = UDim2.new(1, -24, 0, 240)
+        listFrame.Position = UDim2.fromOffset(12, 88)
+        listFrame.BackgroundTransparency = 1
+
+        local scroll = Instance.new("ScrollingFrame", listFrame)
+        scroll.Size = UDim2.fromScale(1,1)
+        scroll.CanvasSize = UDim2.new(0,0,0,0)
+        scroll.ScrollBarThickness = 6
+        scroll.BackgroundTransparency = 1
+        local listLayout = Instance.new("UIListLayout", scroll)
+        listLayout.Padding = UDim.new(0,8)
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            scroll.CanvasSize = UDim2.new(0,0,0, listLayout.AbsoluteContentSize.Y + 10)
+        end)
+
+        -- Bottom: delay & auto button
+        local delayBox = Instance.new("TextBox", Frame)
+        delayBox.Size = UDim2.fromOffset(120,34)
+        delayBox.Position = UDim2.fromOffset(12, 328)
+        delayBox.PlaceholderText = "Delay (s)"
+        delayBox.Text = tostring(getgenv()._AutoWarp.delay or 2)
+        delayBox.Font = Enum.Font.Gotham
+        delayBox.BackgroundColor3 = Color3.fromRGB(36,36,36)
+        Instance.new("UICorner", delayBox).CornerRadius = UDim.new(0,8)
+
+        local btnAuto = Instance.new("TextButton", Frame)
+        btnAuto.Size = UDim2.fromOffset(120,34)
+        btnAuto.Position = UDim2.fromOffset(296, 328)
+        btnAuto.Text = getgenv()._AutoWarp.running and "Auto: ON" or "Auto: OFF"
+        btnAuto.Font = Enum.Font.GothamBold
+        btnAuto.BackgroundColor3 = Color3.fromRGB(60,120,60)
+        Instance.new("UICorner", btnAuto).CornerRadius = UDim.new(0,8)
+
+        -- helper: rebuild list
+        local function rebuildList()
+            -- destroy old rows
+            for _, child in pairs(scroll:GetChildren()) do
+                if not child:IsA("UIListLayout") then pcall(function() child:Destroy() end) end
+            end
+            for i, data in ipairs(getgenv().WarpLocations) do
+                local row = Instance.new("Frame", scroll)
+                row.Size = UDim2.new(1, -12, 0, 36)
+                row.BackgroundColor3 = Color3.fromRGB(36,36,36)
+                Instance.new("UICorner", row).CornerRadius = UDim.new(0,8)
+
+                local lbl = Instance.new("TextLabel", row)
+                lbl.Size = UDim2.new(1, -120, 1, 0)
+                lbl.Position = UDim2.fromOffset(8, 0)
+                lbl.BackgroundTransparency = 1
+                lbl.Font = Enum.Font.GothamBold
+                lbl.TextSize = 14
+                lbl.TextXAlignment = Enum.TextXAlignment.Left
+                lbl.TextColor3 = Color3.fromRGB(255,255,255)
+                lbl.Text = tostring(data.name)
+
+                local btnFL = Instance.new("TextButton", row)
+                btnFL.Size = UDim2.fromOffset(44,28)
+                btnFL.Position = UDim2.new(1, -92, 0.5, -14)
+                btnFL.Text = "fl"
+                btnFL.Font = Enum.Font.GothamBold
+                Instance.new("UICorner", btnFL).CornerRadius = UDim.new(0,8)
+                btnFL.BackgroundColor3 = Color3.fromRGB(58,120,58)
+                btnDel.BackgroundColor3 = Color3.fromRGB(140,60,60)
+
+                btnFL.MouseButton1Click:Connect(function()
+                    local char = LocalPlayer.Character
+                    if char and char:FindFirstChild("HumanoidRootPart") then
+                        char.HumanoidRootPart.CFrame = CFrame.new(data.pos)
+                    end
+                end)
+                btnDel.MouseButton1Click:Connect(function()
+                    table.remove(getgenv().WarpLocations, i)
+                    rebuildList()
+                end)
+            end
+        end
+
+        -- Save handler
+        btnSave.MouseButton1Click:Connect(function()
+            local char = LocalPlayer.Character
+            if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+            local nm = nameBox.Text
+            if not nm or nm == "" then
+                nm = "Lokasi "..tostring(getgenv()._NextAutoNameIdx)
+                getgenv()._NextAutoNameIdx = getgenv()._NextAutoNameIdx + 1
+            end
+            table.insert(getgenv().WarpLocations, {name = nm, pos = char.HumanoidRootPart.Position})
+            nameBox.Text = ""
+            rebuildList()
+        end)
+
+        -- Auto teleport loop
+        local autoThread
+        local function stopAuto()
+            getgenv()._AutoWarp.running = false
+            btnAuto.Text = "Auto: OFF"
+            if autoThread then
+                pcall(function() task.cancel(autoThread) end)
+                autoThread = nil
+            end
+        end
+        local function startAuto()
+            local d = tonumber(delayBox.Text) or 2
+            getgenv()._AutoWarp.delay = math.max(0, d)
+            if #getgenv().WarpLocations == 0 then return end
+            getgenv()._AutoWarp.running = true
+            btnAuto.Text = "Auto: ON"
+            autoThread = task.spawn(function()
+                while getgenv()._AutoWarp.running do
+                    for i=1,#getgenv().WarpLocations do
+                        if not getgenv()._AutoWarp.running then break end
+                        local item = getgenv().WarpLocations[i]
+                        if item and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(item.pos)
+                        end
+                        task.wait(getgenv()._AutoWarp.delay)
+                    end
+                end
+            end)
+        end
+
+        btnAuto.MouseButton1Click:Connect(function()
+            if getgenv()._AutoWarp.running then stopAuto() else startAuto() end
+        end)
+
+        delayBox.FocusLost:Connect(function()
+            local n = tonumber(delayBox.Text)
+            if n and n > 0 then getgenv()._AutoWarp.delay = n end
+        end)
+
+        -- Minimize behavior: hide interior controls, show restore button
+        btnMin.MouseButton1Click:Connect(function()
+            Frame.Size = UDim2.fromOffset(260, 60)
+            for _,v in pairs(Frame:GetChildren()) do
+                if v ~= btnMin and v ~= btnClose and v ~= Title then
+                    v.Visible = false
+                end
+            end
+            if not ScreenGui:FindFirstChild("RestoreWarpBtn") then
+                local rb = Instance.new("TextButton", ScreenGui)
+                rb.Name = "RestoreWarpBtn"
+                rb.Size = UDim2.fromOffset(240,36)
+                rb.Position = UDim2.fromOffset(10,10)
+                rb.Text = "Warp (Restore)"
+                rb.BackgroundColor3 = Color3.fromRGB(60,60,60)
+                Instance.new("UICorner", rb).CornerRadius = UDim.new(0,8)
+                rb.MouseButton1Click:Connect(function()
+                    Frame.Size = UDim2.fromOffset(440,380)
+                    for _,v in pairs(Frame:GetChildren()) do v.Visible = true end
+                    pcall(function() rb:Destroy() end)
+                end)
+            end
+        end)
+
+        btnClose.MouseButton1Click:Connect(function()
+            getgenv()._AutoWarp.running = false
+            if ScreenGui and ScreenGui.Parent then ScreenGui:Destroy() end
+        end)
+
+        -- finalize: initial list build
+        rebuildList()
+    end -- end CreateWarpGUI
+
+    -- export to global so Rayfield button can call
+    _G.CreateWarpGUI = CreateWarpGUI
+    end
+    
+
+
 
 
 -- =========================
@@ -507,35 +747,23 @@ if getgenv().UserTier < 2 then
         Rayfield:Notify({Title = "📋 Discord Copied", Content = "Join for premium keys!", Duration = 3})
     end})
 else
-    -- Fly Mode
-    AutoTab:CreateToggle({Name = "🚀 Fly Mode", CurrentValue = getgenv().States.flying, Flag = "Fly", Callback = function(Value)
-        getgenv().States.flying = Value
-        if Value then
-            local bodyVelocity = Instance.new("BodyVelocity")
-            bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-            bodyVelocity.Parent = HumanoidRootPart
-
-            getgenv().Connections.Fly = RunService.Heartbeat:Connect(function()
-                if getgenv().States.flying and bodyVelocity then
-                    local camera = workspace.CurrentCamera
-                    local direction = Vector3.new()
-                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + camera.CFrame.LookVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction - camera.CFrame.LookVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction = direction - camera.CFrame.RightVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction = direction + camera.CFrame.RightVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then direction = direction + Vector3.new(0, 1, 0) end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0, 1, 0) end
-                    bodyVelocity.Velocity = direction * 50
-                end
-            end)
+    -- Fly: load external fly script (original, untouched)
+MainTab:CreateButton({
+    Name = "Fly",
+    Callback = function()
+        local flyUrl = "https://raw.githubusercontent.com/XNEOFF/FlyGuiV3/main/FlyGuiV3.txt"
+        local ok, err = pcall(function()
+            loadstring(game:HttpGet(flyUrl))()
+        end)
+        if ok then
+            Rayfield:Notify({Title = "Fly Loaded", Content = "Fly script loaded from external link.", Duration = 3})
         else
-            if getgenv().Connections.Fly then getgenv().Connections.Fly:Disconnect() end
-            for _, obj in pairs(HumanoidRootPart:GetChildren()) do
-                if obj:IsA("BodyVelocity") then obj:Destroy() end
-            end
+            Rayfield:Notify({Title = "Fly Load Failed", Content = tostring(err), Duration = 5})
         end
-    end})
+    end
+})
+
+    
 
     -- Noclip
     AutoTab:CreateToggle({Name = "👻 Noclip", CurrentValue = getgenv().States.noclip, Flag = "Noclip", Callback = function(Value)
