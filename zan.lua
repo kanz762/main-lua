@@ -466,137 +466,204 @@ else
     VisualTab:CreateSlider({Name = "☀️ Brightness", Range = {0, 10}, Increment = 0.1, Suffix = "x", CurrentValue = 1, Flag = "Brightness", Callback = function(Value) Lighting.Brightness = Value end})
 end
 
-------------------------------------------------------
 -- AUTO TAB (Premium)
-------------------------------------------------------
 local AutoTab = Window:CreateTab("🤖 Auto", "bot")
 
 if getgenv().UserTier < 2 then
-    AutoTab:CreateParagraph({Title = "🔒 Premium Required", Content = "Unlock premium features:\n🚀 Fly mode\n👻 Noclip\n🚜 Auto farm\n♾️ Infinite jump"})
-    AutoTab:CreateButton({Name = "💎 Unlock Premium", Callback = function()
-        setclipboard(CONFIG.DISCORD_SERVER)
-        Rayfield:Notify({Title = "📋 Discord Copied", Content = "Join for premium keys!", Duration = 3})
-    end})
+    AutoTab:CreateParagraph({
+        Title = "🔒 Premium Required",
+        Content = "Unlock premium features:\n🚀 Fly mode\n👻 Noclip\n🚜 Auto farm\n♾️ Infinite jump"
+    })
+    AutoTab:CreateButton({
+        Name = "💎 Unlock Premium",
+        Callback = function()
+            setclipboard(CONFIG.DISCORD_SERVER)
+            Rayfield:Notify({
+                Title = "📋 Discord Copied",
+                Content = "Join for premium keys!",
+                Duration = 3
+            })
+        end
+    })
+
 else
-    -- Fly: load external fly script (original, untouched)
-MainTab:CreateButton({
-    Name = "Fly",
-    Callback = function()
-        local flyUrl = "https://raw.githubusercontent.com/XNEOFF/FlyGuiV3/main/FlyGuiV3.txt"
-        local ok, err = pcall(function()
-            loadstring(game:HttpGet(flyUrl))()
-        end)
-        if ok then
-            Rayfield:Notify({Title = "Fly Loaded", Content = "Fly script loaded from external link.", Duration = 3})
-        else
-            Rayfield:Notify({Title = "Fly Load Failed", Content = tostring(err), Duration = 5})
-        end
-    end
-})
-
-    
--- Fungsi membersihkan GUI warp tua (jika ada)
-local function CleanOldWarpGUIs()
-    pcall(function()
-        local Players = game:GetService("Players")
-        local plr = Players.LocalPlayer
-        if plr and plr:FindFirstChild("PlayerGui") then
-            for _, g in pairs(plr.PlayerGui:GetChildren()) do
-                if g:IsA("ScreenGui") and tostring(g.Name):lower():find("warp") then
-                    pcall(function() g:Destroy() end)
-                end
+    ------------------------------------------------------------------------------------
+    -- ✅ Fly (tetap eksternal)
+    AutoTab:CreateButton({
+        Name = "🚀 Fly",
+        Callback = function()
+            local flyUrl = "https://raw.githubusercontent.com/XNEOFF/FlyGuiV3/main/FlyGuiV3.txt"
+            local ok, err = pcall(function()
+                loadstring(game:HttpGet(flyUrl))()
+            end)
+            if ok then
+                Rayfield:Notify({Title = "✅ Fly Loaded", Content = "Fly script berhasil dimuat.", Duration = 3})
+            else
+                Rayfield:Notify({Title = "❌ Fly Gagal", Content = tostring(err), Duration = 5})
             end
         end
-        local CoreGui = game:GetService("CoreGui")
-        for _, g in pairs(CoreGui:GetChildren()) do
-            if g:IsA("ScreenGui") and tostring(g.Name):lower():find("warp") then
-                pcall(function() g:Destroy() end)
-            end
-        end
-    end)
-end
+    })
 
--- Tombol Warp integrasi di Rayfield
-MainTab:CreateButton({
-    Name = "Warp",
-    Callback = function()
-        CleanOldWarpGUIs()
-        local warpUrl = "https://pastebin.com/raw/WKeLiGM9"
-        local ok, err = pcall(function()
-            local src = game:HttpGet(warpUrl)
-            local f = loadstring(src)
-            if type(f) ~= "function" then error("Warp script not function") end
-            f()
-        end)
-        if ok then
-            Rayfield:Notify({Title = "✅ Warp Loaded", Content = "Warp dari pastebin dimuat", Duration = 3})
-        else
-            Rayfield:Notify({Title = "❌ Warp Gagal", Content = tostring(err), Duration = 5})
-            warn("Warp load error:", err)
-        end
-    end
-})
-    
-    -- Noclip
-    AutoTab:CreateToggle({Name = "👻 Noclip", CurrentValue = getgenv().States.noclip, Flag = "Noclip", Callback = function(Value)
-        getgenv().States.noclip = Value
-        if Value then
-            getgenv().Connections.Noclip = RunService.Stepped:Connect(function()
-                if getgenv().States.noclip and Character then
-                    for _, part in pairs(Character:GetDescendants()) do
-                        if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+    ------------------------------------------------------------------------------------
+    -- ✅ Tombol Warp (pakai AutoTab, bukan MainTab)
+    local function CleanOldWarpGUIs()
+        pcall(function()
+            local Players = game:GetService("Players")
+            local plr = Players.LocalPlayer
+            if plr and plr:FindFirstChild("PlayerGui") then
+                for _, g in pairs(plr.PlayerGui:GetChildren()) do
+                    if g:IsA("ScreenGui") and tostring(g.Name):lower():find("warp") then
+                        g:Destroy()
                     end
                 end
-            end)
-        else
-            if getgenv().Connections.Noclip then getgenv().Connections.Noclip:Disconnect() end
-            if Character then
-                for _, part in pairs(Character:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanCollide = true end
+            end
+            local CoreGui = game:GetService("CoreGui")
+            for _, g in pairs(CoreGui:GetChildren()) do
+                if g:IsA("ScreenGui") and tostring(g.Name):lower():find("warp") then
+                    g:Destroy()
                 end
             end
-        end
-    end})
+        end)
+    end
 
-    -- Auto Farm
-    AutoTab:CreateToggle({Name = "🚜 Auto Farm", CurrentValue = getgenv().States.autoFarm, Flag = "AutoFarm", Callback = function(Value)
-        getgenv().States.autoFarm = Value
-        if Value then
-            getgenv().Connections.AutoFarm = RunService.Heartbeat:Connect(function()
-                if getgenv().States.autoFarm then
-                    for _, obj in pairs(workspace:GetDescendants()) do
-                        if (obj.Name:find("Coin") or obj.Name:find("Cash") or obj.Name:find("Money")) and obj:IsA("BasePart") then
-                            local distance = (Character.HumanoidRootPart.Position - obj.Position).Magnitude
-                            if distance <= 50 then
-                                Character.HumanoidRootPart.CFrame = obj.CFrame
-                                wait(0.1)
+    AutoTab:CreateButton({
+        Name = "🌀 Warp",
+        Callback = function()
+            CleanOldWarpGUIs()
+            local warpUrl = "https://pastebin.com/raw/WKeLiGM9"
+            local ok, err = pcall(function()
+                local src = game:HttpGet(warpUrl)
+                local f = loadstring(src)
+                if type(f) ~= "function" then error("Warp script invalid") end
+                f()
+            end)
+            if ok then
+                Rayfield:Notify({Title = "✅ Warp Loaded", Content = "Warp script berhasil dimuat.", Duration = 3})
+            else
+                Rayfield:Notify({Title = "❌ Warp Gagal", Content = tostring(err), Duration = 5})
+                warn("Warp load error:", err)
+            end
+        end
+    })
+
+    ------------------------------------------------------------------------------------
+    -- ✅ Noclip
+    AutoTab:CreateToggle({
+        Name = "👻 Noclip",
+        CurrentValue = getgenv().States.noclip,
+        Flag = "Noclip",
+        Callback = function(Value)
+            getgenv().States.noclip = Value
+            if Value then
+                getgenv().Connections.Noclip = RunService.Stepped:Connect(function()
+                    if getgenv().States.noclip and Character then
+                        for _, part in pairs(Character:GetDescendants()) do
+                            if part:IsA("BasePart") and part.CanCollide then
+                                part.CanCollide = false
                             end
                         end
                     end
+                end)
+            else
+                if getgenv().Connections.Noclip then
+                    getgenv().Connections.Noclip:Disconnect()
                 end
-            end)
-        else
-            if getgenv().Connections.AutoFarm then getgenv().Connections.AutoFarm:Disconnect() end
+                if Character then
+                    for _, part in pairs(Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = true
+                        end
+                    end
+                end
+            end
         end
-    end})
+    })
 
-    -- Walk Speed & Jump Power
-    AutoTab:CreateSlider({Name = "🏃 Walk Speed", Range = {1, 500}, Increment = 1, Suffix = " speed", CurrentValue = 16, Flag = "Speed", Callback = function(Value)
-        if Character and Character:FindFirstChild("Humanoid") then Character.Humanoid.WalkSpeed = Value end
-    end})
-    AutoTab:CreateSlider({Name = "🦘 Jump Power", Range = {1, 500}, Increment = 1, Suffix = " power", CurrentValue = 50, Flag = "Jump", Callback = function(Value)
-        if Character and Character:FindFirstChild("Humanoid") then Character.Humanoid.JumpPower = Value end
-    end})
+    ------------------------------------------------------------------------------------
+    -- ✅ Auto Farm
+    AutoTab:CreateToggle({
+        Name = "🚜 Auto Farm",
+        CurrentValue = getgenv().States.autoFarm,
+        Flag = "AutoFarm",
+        Callback = function(Value)
+            getgenv().States.autoFarm = Value
+            if Value then
+                getgenv().Connections.AutoFarm = RunService.Heartbeat:Connect(function()
+                    if getgenv().States.autoFarm and Character then
+                        for _, obj in pairs(workspace:GetDescendants()) do
+                            if (obj.Name:find("Coin") or obj.Name:find("Cash") or obj.Name:find("Money"))
+                                and obj:IsA("BasePart") then
 
-    AutoTab:CreateToggle({Name = "♾️ Infinite Jump", CurrentValue = false, Flag = "InfJump", Callback = function(Value)
-        if Value then
-            getgenv().Connections.InfJump = UserInputService.JumpRequest:Connect(function()
-                if Character and Character:FindFirstChild("Humanoid") then Character.Humanoid:ChangeState("Jumping") end
-            end)
-        else
-            if getgenv().Connections.InfJump then getgenv().Connections.InfJump:Disconnect() end
+                                local distance = (Character.HumanoidRootPart.Position - obj.Position).Magnitude
+                                if distance <= 50 then
+                                    Character.HumanoidRootPart.CFrame = obj.CFrame
+                                    wait(0.1)
+                                end
+                            end
+                        end
+                    end
+                end)
+            else
+                if getgenv().Connections.AutoFarm then
+                    getgenv().Connections.AutoFarm:Disconnect()
+                end
+            end
         end
-    end})
+    })
+
+    ------------------------------------------------------------------------------------
+    -- ✅ Walk Speed
+    AutoTab:CreateSlider({
+        Name = "🏃 Walk Speed",
+        Range = {1, 500},
+        Increment = 1,
+        Suffix = " speed",
+        CurrentValue = 16,
+        Flag = "Speed",
+        Callback = function(Value)
+            if Character and Character:FindFirstChild("Humanoid") then
+                Character.Humanoid.WalkSpeed = Value
+            end
+        end
+    })
+
+    ------------------------------------------------------------------------------------
+    -- ✅ Jump Power
+    AutoTab:CreateSlider({
+        Name = "🦘 Jump Power",
+        Range = {1, 500},
+        Increment = 1,
+        Suffix = " power",
+        CurrentValue = 50,
+        Flag = "Jump",
+        Callback = function(Value)
+            if Character and Character:FindFirstChild("Humanoid") then
+                Character.Humanoid.JumpPower = Value
+            end
+        end
+    })
+
+    ------------------------------------------------------------------------------------
+    -- ✅ Infinite Jump
+    AutoTab:CreateToggle({
+        Name = "♾️ Infinite Jump",
+        CurrentValue = false,
+        Flag = "InfJump",
+        Callback = function(Value)
+            if Value then
+                getgenv().Connections.InfJump = UserInputService.JumpRequest:Connect(function()
+                    if Character and Character:FindFirstChild("Humanoid") then
+                        Character.Humanoid:ChangeState("Jumping")
+                    end
+                end)
+            else
+                if getgenv().Connections.InfJump then
+                    getgenv().Connections.InfJump:Disconnect()
+                end
+            end
+        end
+    })
+
 end
 
 ------------------------------------------------------
