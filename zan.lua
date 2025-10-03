@@ -6,6 +6,10 @@ getgenv().SavedLocations = getgenv().SavedLocations or {}
 getgenv().States = getgenv().States or {flying = false, esp = false, noclip = false, autoFarm = false}
 getgenv().Connections = getgenv().Connections or {}
 getgenv().ESPObjects = getgenv().ESPObjects or {}
+local savedLocations = {}
+local locationIndex = 1
+local autoTeleporting = false
+local autoTPDelay = 1
 
 local CONFIG = {
     PREMIUM_KEYS = {"UWG-P-2025-F1V8-H9C3", "PREM-X7K9-M3N5", "ISAN"},
@@ -473,10 +477,6 @@ local AutoTab = Window:CreateTab("WARP", "TELEPORT")
 -- =========================
 
 -- Data lokasi disimpan di memori
-local savedLocations = {}
-local locationIndex = 1
-local autoTeleporting = false
-local autoTPDelay = 1
 
 -- Fungsi buat GUI Warp
 local function createWarpGUI()
