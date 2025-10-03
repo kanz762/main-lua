@@ -209,47 +209,201 @@ else
         end
     })
 
-    ------------------------------------------------------------------------------------
-    -- ✅ Tombol Warp (pakai AutoTab, bukan MainTab)
-    local function CleanOldWarpGUIs()
-        pcall(function()
-            local Players = game:GetService("Players")
-            local plr = Players.LocalPlayer
-            if plr and plr:FindFirstChild("PlayerGui") then
-                for _, g in pairs(plr.PlayerGui:GetChildren()) do
-                    if g:IsA("ScreenGui") and tostring(g.Name):lower():find("warp") then
-                        g:Destroy()
-                    end
-                end
+    AutoTab:CreateButton({
+    Name = "Warp",
+    Callback = function()
+        -- // GUI WARP SEDERHANA
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+local savedLocations = {}
+local lokasiIndex = 1
+local autoWarpActive = false
+
+-- Buat ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.ResetOnSpawn = false
+screenGui.Name = "WarpGui"
+screenGui.Parent = game.CoreGui or LocalPlayer:WaitForChild("PlayerGui")
+
+-- Frame utama
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 350, 0, 350)
+frame.Position = UDim2.new(0.5, -175, 0.5, -175)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+frame.Parent = screenGui
+
+-- Title
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -50, 0, 30)
+title.Position = UDim2.new(0, 10, 0, 5)
+title.Text = "WARP MENU"
+title.TextSize = 18
+title.TextColor3 = Color3.new(1, 1, 1)
+title.BackgroundTransparency = 1
+title.Parent = frame
+
+-- Tombol Exit
+local exitBtn = Instance.new("TextButton")
+exitBtn.Size = UDim2.new(0, 30, 0, 30)
+exitBtn.Position = UDim2.new(1, -35, 0, 5)
+exitBtn.Text = "X"
+exitBtn.TextColor3 = Color3.new(1, 0, 0)
+exitBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+exitBtn.Parent = frame
+
+exitBtn.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
+
+-- TextBox input nama lokasi
+local nameBox = Instance.new("TextBox")
+nameBox.Size = UDim2.new(0.6, -10, 0, 30)
+nameBox.Position = UDim2.new(0, 10, 0, 40)
+nameBox.PlaceholderText = "Nama Lokasi..."
+nameBox.Text = ""
+nameBox.TextColor3 = Color3.new(1, 1, 1)
+nameBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+nameBox.Parent = frame
+
+-- Tombol SAVE
+local saveBtn = Instance.new("TextButton")
+saveBtn.Size = UDim2.new(0.4, -10, 0, 30)
+saveBtn.Position = UDim2.new(0.6, 5, 0, 40)
+saveBtn.Text = "SAVE"
+saveBtn.TextColor3 = Color3.new(1, 1, 1)
+saveBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+saveBtn.Parent = frame
+
+-- Scroll list lokasi
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -20, 0, 180)
+scroll.Position = UDim2.new(0, 10, 0, 80)
+scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+scroll.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+scroll.BorderSizePixel = 0
+scroll.Parent = frame
+
+-- Fungsi untuk refresh list
+local function updateList()
+    scroll:ClearAllChildren()
+    local yPos = 0
+
+    for i, data in ipairs(savedLocations) do
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(1, -10, 0, 30)
+        holder.Position = UDim2.new(0, 5, 0, yPos)
+        holder.BackgroundTransparency = 1
+        holder.Parent = scroll
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size = UDim2.new(0.6, 0, 1, 0)
+        nameLbl.Position = UDim2.new(0, 0, 0, 0)
+        nameLbl.Text = data.name
+        nameLbl.TextColor3 = Color3.new(1, 1, 1)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Parent = holder
+
+        local tlBtn = Instance.new("TextButton")
+        tlBtn.Size = UDim2.new(0.2, -5, 1, 0)
+        tlBtn.Position = UDim2.new(0.6, 5, 0, 0)
+        tlBtn.Text = "TL"
+        tlBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+        tlBtn.TextColor3 = Color3.new(1, 1, 1)
+        tlBtn.Parent = holder
+
+        tlBtn.MouseButton1Click:Connect(function()
+            if data.cframe then
+                HumanoidRootPart.CFrame = data.cframe
             end
-            local CoreGui = game:GetService("CoreGui")
-            for _, g in pairs(CoreGui:GetChildren()) do
-                if g:IsA("ScreenGui") and tostring(g.Name):lower():find("warp") then
-                    g:Destroy()
+        end)
+
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.new(0.2, -5, 1, 0)
+        delBtn.Position = UDim2.new(0.8, 5, 0, 0)
+        delBtn.Text = "DEL"
+        delBtn.BackgroundColor3 = Color3.fromRGB(90, 30, 30)
+        delBtn.TextColor3 = Color3.new(1, 1, 1)
+        delBtn.Parent = holder
+
+        delBtn.MouseButton1Click:Connect(function()
+            table.remove(savedLocations, i)
+            updateList()
+        end)
+
+        yPos = yPos + 35
+    end
+
+    scroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+end
+
+-- Tombol SAVE logic
+saveBtn.MouseButton1Click:Connect(function()
+    local locName = nameBox.Text
+    if locName == nil or locName == "" then
+        locName = "Lokasi " .. lokasiIndex
+    end
+    lokasiIndex = lokasiIndex + 1
+
+    table.insert(savedLocations, {
+        name = locName,
+        cframe = HumanoidRootPart.CFrame
+    })
+
+    nameBox.Text = ""
+    updateList()
+end)
+
+-- Auto Warp Bagian bawah
+local autoFrame = Instance.new("Frame")
+autoFrame.Size = UDim2.new(1, -20, 0, 60)
+autoFrame.Position = UDim2.new(0, 10, 1, -70)
+autoFrame.BackgroundTransparency = 1
+autoFrame.Parent = frame
+
+local delayBox = Instance.new("TextBox")
+delayBox.Size = UDim2.new(0.6, -10, 1, 0)
+delayBox.Position = UDim2.new(0, 0, 0, 0)
+delayBox.PlaceholderText = "Delay (detik)..."
+delayBox.Text = ""
+delayBox.TextColor3 = Color3.new(1, 1, 1)
+delayBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+delayBox.Parent = autoFrame
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0.4, -10, 1, 0)
+toggleBtn.Position = UDim2.new(0.6, 10, 0, 0)
+toggleBtn.Text = "Auto OFF"
+toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.Parent = autoFrame
+
+-- Auto Warp logic
+toggleBtn.MouseButton1Click:Connect(function()
+    autoWarpActive = not autoWarpActive
+    toggleBtn.Text = autoWarpActive and "Auto ON" or "Auto OFF"
+
+    if autoWarpActive then
+        spawn(function()
+            while autoWarpActive do
+                local delayTime = tonumber(delayBox.Text) or 2
+                for _, data in ipairs(savedLocations) do
+                    if not autoWarpActive then break end
+                    if data.cframe then
+                        HumanoidRootPart.CFrame = data.cframe
+                        wait(delayTime)
+                    end
                 end
             end
         end)
     end
+end)
 
-    AutoTab:CreateButton({
-        Name = "🌀 Warp",
-        Callback = function()
-            CleanOldWarpGUIs()
-            local warpUrl = "https://pastebin.com/raw/7MCKuQfV"
-            local ok, err = pcall(function()
-                local src = game:HttpGet(warpUrl)
-                local f = loadstring(src)
-                if type(f) ~= "function" then error("Warp script invalid") end
-                f()
-            end)
-            if ok then
-                Rayfield:Notify({Title = "✅ Warp Loaded", Content = "Warp script berhasil dimuat.", Duration = 3})
-            else
-                Rayfield:Notify({Title = "❌ Warp Gagal", Content = tostring(err), Duration = 5})
-                warn("Warp load error:", err)
-            end
-        end
-    })
+    end
+})
+
 
     ------------------------------------------------------------------------------------
     -- ✅ Noclip
