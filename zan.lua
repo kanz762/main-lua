@@ -212,194 +212,659 @@ else
     AutoTab:CreateButton({
     Name = "Warp",
     Callback = function()
-        -- // GUI WARP SEDERHANA
+        -- ===============================
+-- WARP SYSTEM (persist & auto-checkpoint)
+-- Paste this whole block inside AutoTab:CreateButton Callback
+-- ===============================
+
+-- Services
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:WaitForChild("Humanoid")
+local HRP = Character:WaitForChild("HumanoidRootPart")
 
-local savedLocations = {}
-local lokasiIndex = 1
-local autoWarpActive = false
+-- Persistence file
+local DATA_FILENAME = "uwg_warp_data.json"
 
--- Buat ScreenGui
-local screenGui = Instance.new("ScreenGui")
-screenGui.ResetOnSpawn = false
-screenGui.Name = "WarpGui"
-screenGui.Parent = game.CoreGui or LocalPlayer:WaitForChild("PlayerGui")
+-- Storage structure:
+-- {
+--   maps = { [placeId] = {locations = { {name=..., cframe = {x,y,z, ...}} , ... } } },
+--   profiles = { [profileName] = {placeId = 12345, locations = {...}} }
+-- }
+local storage = { maps = {}, profiles = {} }
 
--- Frame utama
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 350, 0, 350)
-frame.Position = UDim2.new(0.5, -175, 0.5, -175)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-frame.Parent = screenGui
-
--- Title
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -50, 0, 30)
-title.Position = UDim2.new(0, 10, 0, 5)
-title.Text = "WARP MENU"
-title.TextSize = 18
-title.TextColor3 = Color3.new(1, 1, 1)
-title.BackgroundTransparency = 1
-title.Parent = frame
-
--- Tombol Exit
-local exitBtn = Instance.new("TextButton")
-exitBtn.Size = UDim2.new(0, 30, 0, 30)
-exitBtn.Position = UDim2.new(1, -35, 0, 5)
-exitBtn.Text = "X"
-exitBtn.TextColor3 = Color3.new(1, 0, 0)
-exitBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-exitBtn.Parent = frame
-
-exitBtn.MouseButton1Click:Connect(function()
-    screenGui:Destroy()
-end)
-
--- TextBox input nama lokasi
-local nameBox = Instance.new("TextBox")
-nameBox.Size = UDim2.new(0.6, -10, 0, 30)
-nameBox.Position = UDim2.new(0, 10, 0, 40)
-nameBox.PlaceholderText = "Nama Lokasi..."
-nameBox.Text = ""
-nameBox.TextColor3 = Color3.new(1, 1, 1)
-nameBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-nameBox.Parent = frame
-
--- Tombol SAVE
-local saveBtn = Instance.new("TextButton")
-saveBtn.Size = UDim2.new(0.4, -10, 0, 30)
-saveBtn.Position = UDim2.new(0.6, 5, 0, 40)
-saveBtn.Text = "SAVE"
-saveBtn.TextColor3 = Color3.new(1, 1, 1)
-saveBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-saveBtn.Parent = frame
-
--- Scroll list lokasi
-local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1, -20, 0, 180)
-scroll.Position = UDim2.new(0, 10, 0, 80)
-scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-scroll.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-scroll.BorderSizePixel = 0
-scroll.Parent = frame
-
--- Fungsi untuk refresh list
-local function updateList()
-    scroll:ClearAllChildren()
-    local yPos = 0
-
-    for i, data in ipairs(savedLocations) do
-        local holder = Instance.new("Frame")
-        holder.Size = UDim2.new(1, -10, 0, 30)
-        holder.Position = UDim2.new(0, 5, 0, yPos)
-        holder.BackgroundTransparency = 1
-        holder.Parent = scroll
-
-        local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(0.6, 0, 1, 0)
-        nameLbl.Position = UDim2.new(0, 0, 0, 0)
-        nameLbl.Text = data.name
-        nameLbl.TextColor3 = Color3.new(1, 1, 1)
-        nameLbl.BackgroundTransparency = 1
-        nameLbl.Parent = holder
-
-        local tlBtn = Instance.new("TextButton")
-        tlBtn.Size = UDim2.new(0.2, -5, 1, 0)
-        tlBtn.Position = UDim2.new(0.6, 5, 0, 0)
-        tlBtn.Text = "TL"
-        tlBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-        tlBtn.TextColor3 = Color3.new(1, 1, 1)
-        tlBtn.Parent = holder
-
-        tlBtn.MouseButton1Click:Connect(function()
-            if data.cframe then
-                HumanoidRootPart.CFrame = data.cframe
-            end
-        end)
-
-        local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.new(0.2, -5, 1, 0)
-        delBtn.Position = UDim2.new(0.8, 5, 0, 0)
-        delBtn.Text = "DEL"
-        delBtn.BackgroundColor3 = Color3.fromRGB(90, 30, 30)
-        delBtn.TextColor3 = Color3.new(1, 1, 1)
-        delBtn.Parent = holder
-
-        delBtn.MouseButton1Click:Connect(function()
-            table.remove(savedLocations, i)
-            updateList()
-        end)
-
-        yPos = yPos + 35
+-- helper: isfile/readfile/writefile supported?
+local function safe_isfile(name)
+    if isfile then
+        local ok, res = pcall(isfile, name)
+        if ok then return res end
     end
-
-    scroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    return false
+end
+local function safe_readfile(name)
+    if readfile then
+        local ok, res = pcall(readfile, name)
+        if ok then return res end
+    end
+    return nil
+end
+local function safe_writefile(name, content)
+    if writefile then
+        local ok, res = pcall(writefile, name, content)
+        return ok
+    end
+    return false
 end
 
--- Tombol SAVE logic
-saveBtn.MouseButton1Click:Connect(function()
-    local locName = nameBox.Text
-    if locName == nil or locName == "" then
-        locName = "Lokasi " .. lokasiIndex
+-- fallback to getgenv if no filesystem
+getgenv().__UWG_WARP_FALLBACK = getgenv().__UWG_WARP_FALLBACK or {}
+
+local function loadStorage()
+    -- try file first
+    if safe_isfile(DATA_FILENAME) then
+        local raw = safe_readfile(DATA_FILENAME)
+        if raw then
+            local ok, obj = pcall(function() return HttpService:JSONDecode(raw) end)
+            if ok and type(obj) == "table" then
+                storage = obj
+                return
+            end
+        end
     end
-    lokasiIndex = lokasiIndex + 1
+    -- fallback
+    if type(getgenv().__UWG_WARP_FALLBACK.data) == "table" then
+        storage = getgenv().__UWG_WARP_FALLBACK.data
+    else
+        storage = { maps = {}, profiles = {} }
+    end
+end
 
-    table.insert(savedLocations, {
-        name = locName,
-        cframe = HumanoidRootPart.CFrame
-    })
+local function saveStorage()
+    local raw = HttpService:JSONEncode(storage)
+    if not safe_writefile(DATA_FILENAME, raw) then
+        -- fallback
+        getgenv().__UWG_WARP_FALLBACK.data = storage
+    end
+end
 
-    nameBox.Text = ""
-    updateList()
-end)
+-- initialize
+loadStorage()
 
--- Auto Warp Bagian bawah
-local autoFrame = Instance.new("Frame")
-autoFrame.Size = UDim2.new(1, -20, 0, 60)
-autoFrame.Position = UDim2.new(0, 10, 1, -70)
-autoFrame.BackgroundTransparency = 1
-autoFrame.Parent = frame
+-- helpers to convert cframe to simple table & back
+local function cframeToTable(cf)
+    local p = cf.Position
+    local r00,r01,r02 = cf:ToObjectSpace(CFrame.new(0,0,0)).LookVector.X,0,0 -- not needed; easier store components
+    -- store full cframe via components:
+    local mat = { cf:components() } -- 12 numbers
+    -- CFrame:components returns 12 numbers; but Roblox Lua doesn't have direct cf:components in all envs:
+    -- Use alternative:
+    local x,y,z, r00a,r01a,r02a,r10a,r11a,r12a,r20a,r21a,r22a
+    x = cf.Position.X; y = cf.Position.Y; z = cf.Position.Z
+    local a00,a01,a02,a10,a11,a12,a20,a21,a22 = cf:ToOrientation() -- ToOrientation returns rx,ry,rz (rotations), but store as position + orientation
+    -- Simpler & robust: store position + lookVector + upVector:
+    local look = cf.LookVector
+    local up = cf.UpVector
+    return {
+        p = {x,y,z},
+        l = {look.X, look.Y, look.Z},
+        u = {up.X, up.Y, up.Z}
+    }
+end
+local function tableToCFrame(t)
+    if not t or not t.p then return CFrame.new(0,5,0) end
+    local p = t.p
+    local l = t.l
+    local u = t.u
+    -- reconstruct approximate orientation by building matrix columns:
+    local look = Vector3.new(l[1], l[2], l[3])
+    local up = Vector3.new(u[1], u[2], u[3])
+    local right = look:Cross(up).Unit
+    -- create CFrame from position and basis:
+    local cf = CFrame.fromMatrix(Vector3.new(p[1], p[2], p[3]), right, up, look)
+    return cf
+end
 
-local delayBox = Instance.new("TextBox")
-delayBox.Size = UDim2.new(0.6, -10, 1, 0)
-delayBox.Position = UDim2.new(0, 0, 0, 0)
-delayBox.PlaceholderText = "Delay (detik)..."
-delayBox.Text = ""
-delayBox.TextColor3 = Color3.new(1, 1, 1)
-delayBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-delayBox.Parent = autoFrame
+-- Current map data accessor
+local function getMapData()
+    local pid = tostring(game.PlaceId)
+    storage.maps[pid] = storage.maps[pid] or { locations = {}, nextIndex = 1 }
+    return storage.maps[pid]
+end
 
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0.4, -10, 1, 0)
-toggleBtn.Position = UDim2.new(0.6, 10, 0, 0)
-toggleBtn.Text = "Auto OFF"
-toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-toggleBtn.Parent = autoFrame
+-- UI creation (simple Rayfield-independent)
+local function createWarpUI()
+    -- avoid multiple
+    local existing = game:GetService("CoreGui"):FindFirstChild("UWG_WarpGui")
+    if existing then existing:Destroy() end
 
--- Auto Warp logic
-toggleBtn.MouseButton1Click:Connect(function()
-    autoWarpActive = not autoWarpActive
-    toggleBtn.Text = autoWarpActive and "Auto ON" or "Auto OFF"
+    -- parent safely
+    local parentGui = game:GetService("CoreGui")
+    if not parentGui or parentGui == nil then
+        parentGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+    end
 
-    if autoWarpActive then
-        spawn(function()
-            while autoWarpActive do
-                local delayTime = tonumber(delayBox.Text) or 2
-                for _, data in ipairs(savedLocations) do
-                    if not autoWarpActive then break end
-                    if data.cframe then
-                        HumanoidRootPart.CFrame = data.cframe
-                        wait(delayTime)
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "UWG_WarpGui"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = parentGui
+
+    -- style constants
+    local W, H = 420, 420
+    local frame = Instance.new("Frame", screenGui)
+    frame.Name = "MainFrame"
+    frame.Size = UDim2.new(0, W, 0, H)
+    frame.Position = UDim2.new(0.5, -W/2, 0.45, -H/2)
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    frame.BorderSizePixel = 0
+    local corner = Instance.new("UICorner", frame); corner.CornerRadius = UDim.new(0,8)
+
+    -- title
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, -80, 0, 30)
+    title.Position = UDim2.new(0, 12, 0, 8)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.TextColor3 = Color3.new(1,1,1)
+    title.Text = "Warp Manager"
+
+    -- close and min buttons
+    local closeBtn = Instance.new("TextButton", frame)
+    closeBtn.Size = UDim2.new(0,34,0,26)
+    closeBtn.Position = UDim2.new(1, -42, 0, 6)
+    closeBtn.Text = "X"
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 14
+    closeBtn.BackgroundColor3 = Color3.fromRGB(180,60,60)
+    closeBtn.TextColor3 = Color3.new(1,1,1)
+    local miniBtn = Instance.new("TextButton", frame)
+    miniBtn.Size = UDim2.new(0,34,0,26)
+    miniBtn.Position = UDim2.new(1, -84, 0, 6)
+    miniBtn.Text = "—"
+    miniBtn.Font = Enum.Font.GothamBold
+    miniBtn.TextSize = 14
+    miniBtn.BackgroundColor3 = Color3.fromRGB(100,100,100)
+    miniBtn.TextColor3 = Color3.new(1,1,1)
+
+    -- minimize restore helper
+    local minimized = false
+    local restoreButton = nil
+    local function minimize()
+        if minimized then return end
+        minimized = true
+        frame.Size = UDim2.new(0,220,0,40)
+        for _,c in pairs(frame:GetChildren()) do
+            if c ~= miniBtn and c ~= closeBtn and c ~= title then
+                c.Visible = false
+            end
+        end
+        -- create small restore button
+        if not restoreButton or not restoreButton.Parent then
+            local rb = Instance.new("TextButton")
+            rb.Name = "WarpRestoreBtn"
+            rb.Size = UDim2.new(0,120,0,32)
+            rb.Position = UDim2.new(0, 8, 0, 6)
+            rb.Text = "Warp (Restore)"
+            rb.Font = Enum.Font.GothamBold
+            rb.TextSize = 14
+            rb.BackgroundColor3 = Color3.fromRGB(60,60,60)
+            rb.TextColor3 = Color3.new(1,1,1)
+            rb.Parent = screenGui
+            local rc = Instance.new("UICorner", rb); rc.CornerRadius = UDim.new(0,6)
+            rb.MouseButton1Click:Connect(function()
+                if rb and rb.Parent then rb:Destroy() end
+                minimized = false
+                -- restore children
+                frame.Size = UDim2.new(0, W, 0, H)
+                for _,c in pairs(frame:GetChildren()) do c.Visible = true end
+            end)
+            restoreButton = rb
+        end
+    end
+    miniBtn.MouseButton1Click:Connect(minimize)
+    closeBtn.MouseButton1Click:Connect(function()
+        if restoreButton and restoreButton.Parent then pcall(function() restoreButton:Destroy() end) end
+        screenGui:Destroy()
+    end)
+
+    -- Top: Save name input + Save button + Save as Profile
+    local nameBox = Instance.new("TextBox", frame)
+    nameBox.Size = UDim2.new(0.62, 0, 0, 30)
+    nameBox.Position = UDim2.new(0,12,0,48)
+    nameBox.PlaceholderText = "Nama lokasi (opsional)"
+    nameBox.ClearTextOnFocus = false
+    nameBox.Font = Enum.Font.Gotham
+    nameBox.TextColor3 = Color3.new(1,1,1)
+    nameBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    local ub1 = Instance.new("UICorner", nameBox); ub1.CornerRadius = UDim.new(0,6)
+
+    local saveBtn = Instance.new("TextButton", frame)
+    saveBtn.Size = UDim2.new(0.18, 0, 0, 30)
+    saveBtn.Position = UDim2.new(0.64, 8, 0, 48)
+    saveBtn.Text = "Save"
+    saveBtn.Font = Enum.Font.GothamBold
+    saveBtn.TextColor3 = Color3.new(1,1,1)
+    saveBtn.BackgroundColor3 = Color3.fromRGB(60,140,70)
+    local ub2 = Instance.new("UICorner", saveBtn); ub2.CornerRadius = UDim.new(0,6)
+
+    local saveProfileBtn = Instance.new("TextButton", frame)
+    saveProfileBtn.Size = UDim2.new(0.18, 0, 0, 30)
+    saveProfileBtn.Position = UDim2.new(0.82, 8, 0, 48)
+    saveProfileBtn.Text = "SaveSet"
+    saveProfileBtn.Font = Enum.Font.Gotham
+    saveProfileBtn.TextColor3 = Color3.new(1,1,1)
+    saveProfileBtn.BackgroundColor3 = Color3.fromRGB(100,100,140)
+    local ub3 = Instance.new("UICorner", saveProfileBtn); ub3.CornerRadius = UDim.new(0,6)
+
+    -- Middle: list area (scroll)
+    local listFrame = Instance.new("Frame", frame)
+    listFrame.Size = UDim2.new(1, -24, 0, 260)
+    listFrame.Position = UDim2.new(0,12,0,90)
+    listFrame.BackgroundTransparency = 1
+
+    local scroll = Instance.new("ScrollingFrame", listFrame)
+    scroll.Size = UDim2.new(1,0,1,0)
+    scroll.CanvasSize = UDim2.new(0,0,0,0)
+    scroll.ScrollBarThickness = 6
+    scroll.BackgroundTransparency = 1
+    local layout = Instance.new("UIListLayout", scroll)
+    layout.Padding = UDim.new(0,8)
+
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        scroll.CanvasSize = UDim2.new(0,0,0, layout.AbsoluteContentSize.Y + 8)
+    end)
+
+    -- Bottom: Auto warp controls + profile load dropdown
+    local bottomY = 360
+    local delayBox = Instance.new("TextBox", frame)
+    delayBox.Size = UDim2.new(0.38,0,0,28)
+    delayBox.Position = UDim2.new(0,12,0, bottomY)
+    delayBox.PlaceholderText = "Delay (s)"
+    delayBox.Text = tostring(2)
+    delayBox.ClearTextOnFocus = false
+    delayBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    delayBox.TextColor3 = Color3.new(1,1,1)
+
+    local autoBtn = Instance.new("TextButton", frame)
+    autoBtn.Size = UDim2.new(0.22,0,0,28)
+    autoBtn.Position = UDim2.new(0.4,8,0, bottomY)
+    autoBtn.Text = "Auto: OFF"
+    autoBtn.Font = Enum.Font.GothamBold
+    autoBtn.BackgroundColor3 = Color3.fromRGB(100,100,100)
+    autoBtn.TextColor3 = Color3.new(1,1,1)
+
+    local profileNameBox = Instance.new("TextBox", frame)
+    profileNameBox.Size = UDim2.new(0.22,0,0,28)
+    profileNameBox.Position = UDim2.new(0.62,8,0, bottomY)
+    profileNameBox.PlaceholderText = "Profile name"
+    profileNameBox.ClearTextOnFocus = false
+    profileNameBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    profileNameBox.TextColor3 = Color3.new(1,1,1)
+
+    local loadProfileBtn = Instance.new("TextButton", frame)
+    loadProfileBtn.Size = UDim2.new(0.16,0,0,28)
+    loadProfileBtn.Position = UDim2.new(0.84,8,0, bottomY)
+    loadProfileBtn.Text = "Load"
+    loadProfileBtn.BackgroundColor3 = Color3.fromRGB(100,80,80)
+    loadProfileBtn.TextColor3 = Color3.new(1,1,1)
+
+    local profileDropdown = Instance.new("TextLabel", frame)
+    profileDropdown.Size = UDim2.new(1, -24, 0, 20)
+    profileDropdown.Position = UDim2.new(0,12,0, bottomY + 34)
+    profileDropdown.BackgroundTransparency = 1
+    profileDropdown.TextColor3 = Color3.new(1,1,1)
+    profileDropdown.Font = Enum.Font.Gotham
+    profileDropdown.TextSize = 12
+    profileDropdown.Text = "Profiles available: (type name & press Load)"
+
+    -- variables for runtime
+    local mapData = getMapData()
+    mapData.nextIndex = mapData.nextIndex or 1
+
+    local function refreshList()
+        for _,ch in pairs(scroll:GetChildren()) do
+            if ch:IsA("Frame") then pcall(function() ch:Destroy() end) end
+        end
+        for idx, entry in ipairs(mapData.locations) do
+            local row = Instance.new("Frame", scroll)
+            row.Size = UDim2.new(1, -12, 0, 36)
+            row.BackgroundColor3 = Color3.fromRGB(40,40,40)
+            local rc = Instance.new("UICorner", row); rc.CornerRadius = UDim.new(0,6)
+
+            local nameLbl = Instance.new("TextLabel", row)
+            nameLbl.Size = UDim2.new(0.54, 0, 1, 0)
+            nameLbl.Position = UDim2.new(0,8,0,0)
+            nameLbl.BackgroundTransparency = 1
+            nameLbl.TextColor3 = Color3.new(1,1,1)
+            nameLbl.Font = Enum.Font.Gotham
+            nameLbl.Text = tostring(entry.name)
+
+            local tpBtn = Instance.new("TextButton", row)
+            tpBtn.Size = UDim2.new(0.18, -6, 1, -8)
+            tpBtn.Position = UDim2.new(0.62, 6, 0, 4)
+            tpBtn.Text = "TL"
+            tpBtn.Font = Enum.Font.GothamBold
+            tpBtn.BackgroundColor3 = Color3.fromRGB(70,140,70)
+            tpBtn.TextColor3 = Color3.new(1,1,1)
+
+            local delBtn = Instance.new("TextButton", row)
+            delBtn.Size = UDim2.new(0.18, -6, 1, -8)
+            delBtn.Position = UDim2.new(0.82, 6, 0, 4)
+            delBtn.Text = "DEL"
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.BackgroundColor3 = Color3.fromRGB(160,70,70)
+            delBtn.TextColor3 = Color3.new(1,1,1)
+
+            tpBtn.MouseButton1Click:Connect(function()
+                -- teleport to entry.cframe
+                if entry.cframe then
+                    local ok,err = pcall(function()
+                        HRP.CFrame = tableToCFrame(entry.cframe)
+                    end)
+                    if not ok then warn("Teleport failed:", err) end
+                end
+            end)
+
+            delBtn.MouseButton1Click:Connect(function()
+                table.remove(mapData.locations, idx)
+                saveStorage()
+                refreshList()
+            end)
+        end
+    end
+
+    -- Save button logic
+    saveBtn.MouseButton1Click:Connect(function()
+        local nm = nameBox.Text
+        if not nm or nm == "" then
+            nm = "Lokasi " .. tostring(mapData.nextIndex or 1)
+            mapData.nextIndex = (mapData.nextIndex or 1) + 1
+        end
+        if Character and Character:FindFirstChild("HumanoidRootPart") then
+            local cf = Character.HumanoidRootPart.CFrame
+            table.insert(mapData.locations, { name = nm, cframe = cframeToTable(cf) })
+            saveStorage()
+            nameBox.Text = ""
+            refreshList()
+        end
+    end)
+
+    -- Save profile (store current mapData snapshot under profileName)
+    saveProfileBtn.MouseButton1Click:Connect(function()
+        local pname = profileNameBox.Text
+        if not pname or pname == "" then
+            pname = "Profile_"..tostring(os.time())
+        end
+        storage.profiles[pname] = { placeId = tostring(game.PlaceId), locations = {} }
+        for _,entry in ipairs(mapData.locations) do
+            table.insert(storage.profiles[pname].locations, { name = entry.name, cframe = entry.cframe })
+        end
+        saveStorage()
+        profileDropdown.Text = "Saved profile: "..pname
+    end)
+
+    loadProfileBtn.MouseButton1Click:Connect(function()
+        local pname = profileNameBox.Text
+        if not pname or pname == "" then
+            profileDropdown.Text = "Type profile name to load"
+            return
+        end
+        local prof = storage.profiles[pname]
+        if not prof then
+            profileDropdown.Text = "Profile not found: "..pname
+            return
+        end
+        -- only load if profile's placeId matches current PlaceId (user asked to load for this map)
+        if tostring(prof.placeId) ~= tostring(game.PlaceId) then
+            profileDropdown.Text = "Profile place mismatch. Use Load on its map."
+        end
+        -- replace mapData.locations with profile
+        mapData.locations = {}
+        for _,e in ipairs(prof.locations) do
+            table.insert(mapData.locations, { name = e.name, cframe = e.cframe })
+        end
+        saveStorage()
+        refreshList()
+        profileDropdown.Text = "Loaded: "..pname
+    end)
+
+    -- initialize mapData structure if needed
+    mapData.locations = mapData.locations or {}
+    mapData.nextIndex = mapData.nextIndex or 1
+    refreshList()
+
+    -- === Auto-warp with strong checkpoint checks ===
+    local autoThread = nil
+    local autoRunning = false
+
+    -- snapshot functions for auto-checkpoint detection
+    local function snapshotValues()
+        local snap = { values = {}, instanceCounts = {}, pos = nil, health = nil }
+        -- position
+        if Character and Character:FindFirstChild("HumanoidRootPart") then
+            snap.pos = Character.HumanoidRootPart.Position
+        end
+        -- health
+        if Character and Character:FindFirstChild("Humanoid") then
+            snap.health = Character.Humanoid.Health
+        end
+        -- leaderstats
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        if ls then
+            snap.leaderstats = {}
+            for _,v in pairs(ls:GetChildren()) do
+                if v:IsA("IntValue") or v:IsA("NumberValue") or v:IsA("BoolValue") or v:IsA("StringValue") then
+                    snap.leaderstats[v.Name] = v.Value
+                end
+            end
+        end
+        -- values under player & character (NumberValue, IntValue, BoolValue, StringValue)
+        local function collectFrom(parent)
+            if not parent then return end
+            for _,inst in pairs(parent:GetDescendants()) do
+                if inst:IsA("IntValue") or inst:IsA("NumberValue") or inst:IsA("BoolValue") or inst:IsA("StringValue") then
+                    local path = inst:GetFullName()
+                    snap.values[path] = inst.Value
+                end
+            end
+        end
+        collectFrom(LocalPlayer)
+        collectFrom(Character)
+        -- record basic instance counts for PlayerGui / Backpack / ReplicatedStorage to detect new instances
+        local function countChildren(parent, key)
+            if not parent then return 0 end
+            local n = 0
+            for _,c in pairs(parent:GetDescendants()) do n = n + 1 end
+            snap.instanceCounts[key] = n
+        end
+        pcall(function() countChildren(LocalPlayer:FindFirstChild("PlayerGui"), "PlayerGui") end)
+        pcall(function() countChildren(LocalPlayer:FindFirstChild("Backpack"), "Backpack") end)
+        pcall(function() countChildren(workspace, "Workspace") end)
+        return snap
+    end
+
+    local function snapshotChanged(before, after)
+        -- compare leaderstats
+        if before.leaderstats and after.leaderstats then
+            for k,v in pairs(after.leaderstats) do
+                if before.leaderstats[k] ~= v then
+                    return true, "leaderstats_changed"
+                end
+            end
+        end
+        -- compare values map (any change)
+        for k,v in pairs(after.values or {}) do
+            if before.values[k] ~= nil then
+                if tostring(before.values[k]) ~= tostring(v) then
+                    return true, "value_changed"
+                end
+            else
+                -- new value appeared
+                return true, "value_added"
+            end
+        end
+        -- instance count change
+        for k,v in pairs(after.instanceCounts or {}) do
+            if before.instanceCounts[k] and before.instanceCounts[k] ~= v then
+                return true, "instancecount_changed"
+            end
+        end
+        -- pos change big? (if teleport target expected to be same as pos)
+        if before.pos and after.pos then
+            local dist = (before.pos - after.pos).Magnitude
+            if dist > 1.5 then
+                -- player moved significantly -> could be teleport success or forced move; but treat as change
+                return true, "pos_moved"
+            end
+        end
+        -- health changed
+        if before.health and after.health and before.health ~= after.health then
+            return true, "health_changed"
+        end
+        return false, "no_change"
+    end
+
+    -- Strong checkpoint attempt for a single location
+    local function attemptCheckpoint(entry, maxAttempts)
+        maxAttempts = maxAttempts or 12
+        local attempts = 0
+        local lastErr = nil
+        while attempts < maxAttempts do
+            attempts = attempts + 1
+            local before = snapshotValues()
+            -- teleport
+            local ok
+            ok, lastErr = pcall(function()
+                HRP.CFrame = tableToCFrame(entry.cframe)
+            end)
+            if not ok then
+                -- wait and retry
+                task.wait(0.35)
+                continue
+            end
+            -- wait a little for server replication
+            task.wait(0.4)
+            -- wait for stability window (check several frames)
+            local stableWait = 0
+            local stabilized = false
+            for i=1,6 do
+                task.wait(0.2)
+                local after = snapshotValues()
+                local changed, reason = snapshotChanged(before, after)
+                -- if changed in meaningful way -> success
+                if changed then
+                    -- Additional: ensure not respawned: confirm Character exists & HRP
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        stabilized = true
+                        break
+                    end
+                end
+            end
+            if stabilized then
+                -- extra confirmation: ensure player remains near target for 0.6s
+                local targetPos = tableToCFrame(entry.cframe).Position
+                local confirmed = true
+                for i=1,4 do
+                    task.wait(0.2)
+                    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        confirmed = false; break
+                    end
+                    local curPos = LocalPlayer.Character.HumanoidRootPart.Position
+                    if (curPos - targetPos).Magnitude > 12 then
+                        confirmed = false; break
+                    end
+                end
+                if confirmed then
+                    return true, ("success_after_attempts_%d"):format(attempts)
+                else
+                    -- retry
+                end
+            end
+            -- small backoff
+            task.wait(0.2)
+        end
+        return false, ("failed_after_%d_attempts; err=%s"):format(attempts, tostring(lastErr))
+    end
+
+    -- Auto warp runner
+    local autoRunner = nil
+    local function startAuto()
+        if autoRunner and autoRunner.Status == "running" then return end
+        if not mapData.locations or #mapData.locations == 0 then
+            profileDropdown.Text = "No locations saved"
+            return
+        end
+        autoBtn.Text = "Auto: ON"; autoBtn.BackgroundColor3 = Color3.fromRGB(60,140,60)
+        local d = tonumber(delayBox.Text) or 2
+        autoRunner = task.spawn(function()
+            while true do
+                for i = 1, #mapData.locations do
+                    if not autoBtn.Text or autoBtn.Text == "Auto: OFF" then return end
+                    local entry = mapData.locations[i]
+                    -- attempt checkpoint robustly
+                    local ok, msg = attemptCheckpoint(entry, 12)
+                    if ok then
+                        -- success, wait delay and move to next
+                        task.wait(d)
+                    else
+                        -- If failed, still proceed (or optionally retry more) — already retried in attemptCheckpoint
+                        task.wait(0.5)
                     end
                 end
             end
         end)
     end
-end)
+
+    local function stopAuto()
+        autoBtn.Text = "Auto: OFF"; autoBtn.BackgroundColor3 = Color3.fromRGB(100,100,100)
+        -- stopping is simply toggling button text — runner checks text
+    end
+
+    autoBtn.MouseButton1Click:Connect(function()
+        if autoBtn.Text == "Auto: OFF" then
+            startAuto()
+        else
+            stopAuto()
+        end
+    end)
+
+    -- On open: show available profiles for this place
+    local function refreshProfileList()
+        local list = {}
+        for k,v in pairs(storage.profiles or {}) do
+            if tostring(v.placeId) == tostring(game.PlaceId) then
+                table.insert(list, k)
+            end
+        end
+        if #list == 0 then
+            profileDropdown.Text = "Profiles available: none"
+        else
+            profileDropdown.Text = "Profiles available: "..table.concat(list, ", ")
+        end
+    end
+    refreshProfileList()
+
+    -- Save/Load to file whenever mapData changes
+    local origMap = getMapData()
+    -- Bind save on close also
+    -- (we already call saveStorage on modifications above)
+
+    -- ensure remove when GUI destroyed
+    screenGui.Destroying:Connect(function()
+        -- nothing special
+    end)
+end
+
+-- Create the UI when button clicked
+createWarpUI()
+
+-- ===============================
+-- END OF WARP BLOCK
+-- ===============================
 
     end
 })
